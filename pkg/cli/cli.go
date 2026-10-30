@@ -209,6 +209,14 @@ func NewCommand() *cobra.Command {
 		}),
 	}
 	app.AddCommand(ps)
+	rename := &cobra.Command{
+		Use: "rename OLD_NAME NEW_NAME", Args: cobra.ExactArgs(2),
+		Short: "Rename a stopped container (volumes, logs, and state move with it)",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			return e.Rename(cmd.Context(), args[0], args[1])
+		}),
+	}
+	app.AddCommand(rename)
 	pull := &cobra.Command{
 		Use: "pull IMAGE", Args: cobra.ExactArgs(1), Short: "Fetch and unpack an OCI image without a daemon",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
