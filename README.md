@@ -13,6 +13,11 @@ GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
 GOWORK=off go test ./...
 ```
 
+Tests that run real rootless containers against a registry image are gated:
+`SPOD_REAL_LIFECYCLE_TEST=1 go test ./pkg/engine/ -run TestRealLifecycleAlpine`
+exercises run, exec, stop, restart, listing, and removal against
+`docker.io/library/alpine:3.22`. Plain `go test ./...` stays offline.
+
 `GOWORK=off` also makes these commands independent of any enclosing development
 workspace. The Linux binary is statically linked and needs a C compiler and
 static libc development files at build time, not at runtime. libcontainer's
