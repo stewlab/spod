@@ -109,6 +109,3 @@ func main() {
   and non-root image users may require subordinate mappings.
 - Image removal refuses references held by containers; volume removal refuses
   volumes held by containers.
-
-The original implementation does not incorporate Lilipod source. Upstream
-dependencies retain their own licenses and notices.
