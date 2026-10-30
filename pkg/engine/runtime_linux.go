@@ -204,6 +204,33 @@ func (e *Engine) buildConfig(name, rootfs string, rm *runtimeMeta) (*configs.Con
 		})
 	}
 
+	// Host networking shares the host's network namespace, so the host's
+	// resolver files make name resolution work. The image's own
+	// /etc/resolv.conf frequently points at a resolver from its build
+	// (a loopback address nobody serves) and cannot resolve anything.
+	// A caller mounting either target explicitly wins.
+	for _, resolver := range []string{"/etc/resolv.conf", "/etc/hosts"} {
+		if _, err := os.Stat(resolver); err != nil {
+			continue
+		}
+		shadowed := false
+		for _, m := range rm.Mounts {
+			if m.Target == resolver {
+				shadowed = true
+				break
+			}
+		}
+		if shadowed {
+			continue
+		}
+		spec.Mounts = append(spec.Mounts, specs.Mount{
+			Source:      resolver,
+			Destination: resolver,
+			Type:        "none",
+			Options:     []string{"rbind", "ro"},
+		})
+	}
+
 	// Rootless conversion drops the network namespace (host networking) and the
 	// cgroup namespace, and adds the user namespace.
 	specconv.ToRootless(spec)
