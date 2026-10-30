@@ -41,6 +41,27 @@ GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
 GOWORK=off go test ./...
 ```
 
+### Cross-compiling with Zig
+
+`zig cc` is a single C compiler that targets every platform, so a CGO
+build for a foreign architecture needs no per-target toolchain or
+sysroot — including static musl binaries for targets where installing a
+cross-gcc is impractical. Point `CC` at it and set the Go target as
+usual:
+
+```sh
+GOWORK=off CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 \
+  CC="zig cc -target riscv64-linux-musl" \
+  go build -trimpath -tags 'netgo osusergo' \
+  -ldflags '-s -w -linkmode external -extldflags "-static"' -o bin/spod-riscv64 ./cmd/spod
+```
+
+The same recipe covers amd64, arm64, and arm. macOS targets additionally
+need the Apple SDK, which Zig does not bundle. The host-amd64 Zig build
+was verified against the real-lifecycle test suite, and riscv64 and
+arm64 artifacts link statically; pin the Zig version when it matters —
+the toolchain occasionally changes flag behavior between releases.
+
 The two environment settings are requirements, not preferences:
 
 - `GOWORK=off` builds this checkout against its own `go.mod`. An enclosing
