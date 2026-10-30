@@ -8,28 +8,55 @@ No daemon, no root service, no separately installed runtime.
 ## Build
 
 ```sh
-GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
-  -ldflags '-linkmode external -extldflags "-static"' -o bin/spod ./cmd/spod
-GOWORK=off go test ./...
+make build        # or: ./build.sh build — compiles bin/spod
+make test         # offline unit tests
+make test-real    # lifecycle test against alpine:3.22 (needs network)
+make install      # installs to ~/.local/bin/spod
 ```
 
-- Container execution needs Linux, CGO, a C compiler at build time, and
-  unprivileged user namespaces at runtime; the resulting binary is static.
-- Image operations (pull, export, inspect) work everywhere, including
-  `CGO_ENABLED=0` and non-Linux builds; execution there returns an explicit
-  error instead of failing obscurely.
-- Tests that run real containers are opt-in:
-  `SPOD_REAL_LIFECYCLE_TEST=1 go test ./pkg/engine/ -run TestRealLifecycleAlpine`
-  exercises the full lifecycle against `docker.io/library/alpine:3.22`;
-  plain tests stay offline.
+`build.sh` wraps the go commands with the two settings every spod build
+needs, so you do not have to remember them:
 
-The included `Containerfile` ships the same static binary in a minimal
-Alpine image:
+- `GOWORK=off` builds this checkout against its own `go.mod`. An enclosing
+  `go.work` (a monorepo superproject, for example) would otherwise redirect
+  the build to a different spod checkout.
+- `CGO_ENABLED=1` links libcontainer's cgo constructor, which sets up the
+  Linux user namespace before the Go runtime starts. Without CGO the binary
+  still compiles everywhere and keeps image operations (pull, images,
+  prune, inspect); container commands return an explicit error instead of
+  failing obscurely.
+
+The Linux build is fully static, so the binary runs on any Linux without
+library dependencies (`./build.sh build --dynamic` links the host libc
+instead). It needs a C compiler and a static libc at build time, and
+unprivileged user namespaces at runtime.
+
+Equivalent manual build:
+
+```sh
+GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
+  -ldflags '-linkmode external -extldflags "-static"' -o bin/spod ./cmd/spod
+```
+
+Once built, run it directly — no other container tooling involved:
+
+```sh
+bin/spod run --rm -it -v "$PWD:/workspace" -w /workspace alpine:3.22 /bin/sh
+```
+
+`Containerfile` packages that same static binary into a minimal Alpine
+image for distribution, for example as a CI job image:
 
 ```sh
 podman build -t spod .
-podman run --rm --userns=host --privileged spod run --rm alpine:3.22 id
 ```
+
+The image carries the engine at `/usr/local/bin/spod` and runs as an
+unprivileged user. It is a packaging vehicle, not the way to try spod:
+running containers from inside a container needs user namespace support
+from the outer engine, so on a host the built binary is all you need.
+Real-container tests are opt-in (`SPOD_REAL_LIFECYCLE_TEST=1` when using
+plain `go test`); plain tests stay offline.
 
 ## Commands
 
