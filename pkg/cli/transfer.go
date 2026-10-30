@@ -35,6 +35,20 @@ func addTransfer(app *cobra.Command, withStore storeHandler) {
 	}
 	export.Flags().StringVarP(&output, "output", "o", "", "Write to FILE instead of stdout")
 
+	importOCI := &cobra.Command{
+		Use: "import-oci REFERENCE ARCHIVE", Args: cobra.ExactArgs(2),
+		Short: "Store an OCI image tarball (podman save --format oci-archive) as REFERENCE",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			image, err := e.ImportOCI(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), image.Reference)
+			return nil
+		}),
+	}
+	app.AddCommand(importOCI)
+
 	importArchive := &cobra.Command{
 		Use: "import REFERENCE [FILE]", Args: cobra.RangeArgs(1, 2),
 		Short: "Create an image from a tar archive, to use as a base image",
