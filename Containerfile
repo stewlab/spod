@@ -31,8 +31,8 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 
 RUN CGO_ENABLED=1 \
-    go build -tags 'netgo osusergo' \
-    -ldflags '-linkmode external -extldflags "-static"' \
+    go build -trimpath -tags 'netgo osusergo' \
+    -ldflags '-s -w -linkmode external -extldflags "-static"' \
     -o /out/spod ./cmd/spod
 
 # Artifact target for --output; placed before the runtime stage so a plain

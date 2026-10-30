@@ -14,7 +14,8 @@ podman build --target binary --output type=local,dest=bin .   # emits bin/spod
 podman build --tag spod .                                     # builds the distribution image
 ```
 
-The first stage compiles the fully static binary (CGO against musl). The
+The first stage compiles the production binary: fully static (CGO
+against musl), `-trimpath`, and stripped with `-s -w`. The
 `--target binary` run exports just that binary into `bin/`; the second
 build finishes at the minimal Alpine image that packages the engine for
 distribution, for example as a CI job image.
@@ -26,7 +27,7 @@ container:
 spod run --rm -v "$PWD:/src" -w /src golang:1.25-alpine \
   sh -c 'apk add --no-cache git gcc musl-dev linux-headers &&
          GOWORK=off CGO_ENABLED=1 go build -trimpath -tags netgo,osusergo \
-           -ldflags "-linkmode external -extldflags -static" -o bin/spod ./cmd/spod'
+           -ldflags "-s -w -linkmode external -extldflags -static" -o bin/spod ./cmd/spod'
 ```
 
 Build on the host instead if you have Go 1.25+, a C compiler, and a
@@ -34,7 +35,7 @@ static libc:
 
 ```sh
 GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
-  -ldflags '-linkmode external -extldflags "-static"' -o bin/spod ./cmd/spod
+  -ldflags '-s -w -linkmode external -extldflags "-static"' -o bin/spod ./cmd/spod
 GOWORK=off go test ./...
 ```
 
