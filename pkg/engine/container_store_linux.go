@@ -275,12 +275,16 @@ func (e *Engine) Rename(ctx context.Context, oldName, newName string) error {
 			rollback()
 			return fmt.Errorf("rename container %s: %w", oldName, err)
 		}
+		// The runtime metadata carries its own copy of the mounts; its volume
+		// sources must follow the move like the metadata above, or the next
+		// start binds a path that no longer exists.
+		rewriteVolumes(rm.Mounts)
 		if rm.Hostname == oldName {
 			rm.Hostname = newName
-			if err := writeJSONAtomic(e.runtimePath(newName), rm); err != nil {
-				rollback()
-				return fmt.Errorf("rename container %s: %w", oldName, err)
-			}
+		}
+		if err := writeJSONAtomic(e.runtimePath(newName), rm); err != nil {
+			rollback()
+			return fmt.Errorf("rename container %s: %w", oldName, err)
 		}
 	}
 	return nil

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//go:build linux
+//go:build linux && cgo
 
 package engine
 
@@ -42,6 +42,20 @@ func TestRenameMovesContainerAndVolumes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.Root, "logs", "old-app.log"), []byte("log"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// A container that has run keeps runtime metadata with its own copy of
+	// the mounts; its volume sources must follow the rename too.
+	runtime := runtimeMeta{
+		Argv:     []string{"/bin/sleep", "3600"},
+		Env:      []string{"PATH=/bin"},
+		Cwd:      "/",
+		Hostname: "old-app",
+		Mounts: []Mount{
+			{Source: filepath.Join(e.Root, "volumes", "old-app-home", "_data"), Target: "/home/dev"},
+		},
+	}
+	if err := writeJSONAtomic(e.runtimePath("old-app"), runtime); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := e.Rename(ctx, "old-app", "new-app"); err != nil {
 		t.Fatalf("rename: %v", err)
@@ -60,6 +74,20 @@ func TestRenameMovesContainerAndVolumes(t *testing.T) {
 	wantSource := filepath.Join(e.Root, "volumes", "new-app-home", "_data")
 	if len(renamed.Options.Mounts) != 1 || renamed.Options.Mounts[0].Source != wantSource {
 		t.Fatalf("mount source not rewritten: %+v", renamed.Options.Mounts)
+	}
+	var rm runtimeMeta
+	rmData, err := os.ReadFile(e.runtimePath("new-app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(rmData, &rm); err != nil {
+		t.Fatal(err)
+	}
+	if rm.Hostname != "new-app" {
+		t.Fatalf("runtime hostname not rewritten: %q", rm.Hostname)
+	}
+	if len(rm.Mounts) != 1 || rm.Mounts[0].Source != wantSource {
+		t.Fatalf("runtime mount source not rewritten: %+v", rm.Mounts)
 	}
 	if _, err := os.Stat(filepath.Join(e.Root, "volumes", "old-app-home")); !os.IsNotExist(err) {
 		t.Fatalf("old volume dir survived: %v", err)
