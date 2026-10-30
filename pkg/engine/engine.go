@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"time"
 )
 
@@ -20,19 +21,46 @@ type Engine struct {
 	Root string
 }
 
+// DefaultRoot returns the platform-standard location for spod's storage:
+// $XDG_DATA_HOME/spod/storage (defaulting to ~/.local/share/spod/storage) on
+// Linux and other Unix systems, ~/Library/Application Support/spod/storage on
+// macOS, and %LOCALAPPDATA%\spod\storage on Windows. SPOD_ROOT overrides the
+// location and must be absolute.
 func DefaultRoot() (string, error) {
 	if root := os.Getenv("SPOD_ROOT"); root != "" {
-		return filepath.Abs(root)
+		if !filepath.IsAbs(root) {
+			return "", fmt.Errorf("SPOD_ROOT must be an absolute path: %s", root)
+		}
+		return root, nil
 	}
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
+	switch runtime.GOOS {
+	case "windows":
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			base = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(base, "spod", "storage"), nil
+	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
-		base = filepath.Join(home, ".local", "share")
+		return filepath.Join(home, "Library", "Application Support", "spod", "storage"), nil
+	default:
+		base := os.Getenv("XDG_DATA_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			base = filepath.Join(home, ".local", "share")
+		}
+		return filepath.Join(base, "spod", "storage"), nil
 	}
-	return filepath.Abs(filepath.Join(base, "spod", "storage"))
 }
 
 func New(root string) (*Engine, error) {

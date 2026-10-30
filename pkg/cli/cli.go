@@ -53,7 +53,7 @@ func NewCommand() *cobra.Command {
 		Use: "spod", Short: "Standalone, rootless, daemonless OCI containers",
 		Version: "0.1.0", SilenceUsage: true, SilenceErrors: true,
 	}
-	app.PersistentFlags().StringVar(&root, "root", "", "Storage directory (default: SPOD_ROOT or XDG_DATA_HOME/spod/storage)")
+	app.PersistentFlags().StringVar(&root, "root", "", "Storage directory (default: SPOD_ROOT, else the platform data directory)")
 	store := func() (*engine.Engine, error) { return engine.New(root) }
 	withStore := func(fn func(*cobra.Command, *engine.Engine, []string) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, args []string) error {

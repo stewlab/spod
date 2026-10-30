@@ -68,10 +68,12 @@ not supported; use `exec -it` for an interactive terminal. A detached container
 has its own short-lived monitor process to reap its initial process, provide
 attach streams, and collect logs. There is no shared or persistent service.
 
-Default storage is `$XDG_DATA_HOME/spod/storage`, falling back to
-`~/.local/share/spod/storage`. Override it with `SPOD_ROOT` or `--root`; an
-override must be an absolute path, so a store is never created relative to the
-working directory by accident.
+Default storage follows the platform data directory: `$XDG_DATA_HOME/spod/storage`
+(falling back to `~/.local/share/spod/storage`) on Linux and other Unix
+systems, `~/Library/Application Support/spod/storage` on macOS, and
+`%LOCALAPPDATA%\spod\storage` on Windows. Override it with `SPOD_ROOT` or
+`--root`; an override must be an absolute path, so a store is never created
+relative to the working directory by accident.
 Image manifests/configuration, cached root filesystems, writable container
 filesystems, runtime state, named volumes, and logs live in separate directories.
 Removed resources move into the store's `trash/` directory, rather than being

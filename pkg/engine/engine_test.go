@@ -5,11 +5,43 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 // A relative storage root would materialize the store relative to the
 // caller's working directory, so New refuses it.
+// TestDefaultRootPerPlatform pins the platform-standard default locations
+// and the absolute-path requirement for SPOD_ROOT.
+func TestDefaultRootPerPlatform(t *testing.T) {
+	t.Setenv("SPOD_ROOT", "")
+	base := t.TempDir()
+	var want string
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("LOCALAPPDATA", base)
+		want = filepath.Join(base, "spod", "storage")
+	case "darwin":
+		t.Setenv("HOME", base)
+		want = filepath.Join(base, "Library", "Application Support", "spod", "storage")
+	default:
+		t.Setenv("XDG_DATA_HOME", base)
+		want = filepath.Join(base, "spod", "storage")
+	}
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != want {
+		t.Fatalf("default root: got %q, want %q", root, want)
+	}
+
+	t.Setenv("SPOD_ROOT", "relative-root")
+	if _, err := DefaultRoot(); err == nil {
+		t.Fatal("accepted a relative SPOD_ROOT")
+	}
+}
+
 func TestNewRejectsRelativeRoot(t *testing.T) {
 	if _, err := New("spod-root"); err == nil {
 		t.Fatal("accepted a relative storage root")
@@ -17,11 +49,8 @@ func TestNewRejectsRelativeRoot(t *testing.T) {
 	if _, err := New("./spod-root"); err == nil {
 		t.Fatal("accepted a relative storage root")
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New(filepath.Join(wd, "accepted")); err != nil {
+	accepted := filepath.Join(t.TempDir(), "accepted")
+	if _, err := New(accepted); err != nil {
 		t.Fatalf("rejected an absolute root: %v", err)
 	}
 }
