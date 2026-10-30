@@ -1,6 +1,9 @@
 # Containerfile for building the spod binary and a minimal runtime image.
 #
-# Build:
+# Emit the binary as a build artifact, no image involved:
+#   podman build --target binary -o type=local,dest=bin .
+#
+# Build the distribution image:
 #   podman build -t spod .
 #   docker build -t spod .
 #
@@ -31,6 +34,11 @@ RUN CGO_ENABLED=1 \
     go build -tags 'netgo osusergo' \
     -ldflags '-linkmode external -extldflags "-static"' \
     -o /out/spod ./cmd/spod
+
+# Artifact target for --output; placed before the runtime stage so a plain
+# build still produces the image.
+FROM scratch AS binary
+COPY --from=build /out/spod /spod
 
 FROM alpine:3.22
 

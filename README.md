@@ -10,12 +10,14 @@ No daemon, no root service, no separately installed runtime.
 Build in a container — no Go toolchain or C compiler needed on the host:
 
 ```sh
-podman build -t spod .
+podman build --target binary -o type=local,dest=bin .   # emits bin/spod
+podman build -t spod .                                  # builds the distribution image
 ```
 
-The first stage compiles the fully static binary (CGO against musl); the
-finished image is the engine packaged for distribution, for example as a
-CI job image.
+The first stage compiles the fully static binary (CGO against musl). The
+`--target binary` run exports just that binary into `bin/`; the second
+build finishes at the minimal Alpine image that packages the engine for
+distribution, for example as a CI job image.
 
 Build on the host instead if you have Go 1.25+, a C compiler, and a
 static libc:
@@ -41,9 +43,7 @@ Install the binary to `~/.local/bin` (ensure it is on your `PATH`):
 
 ```sh
 mkdir -p ~/.local/bin
-cp bin/spod ~/.local/bin/spod                                              # from the host build
-# or extract it from the container build (--entrypoint overrides the image's spod entrypoint):
-podman run --rm --entrypoint /bin/cat spod /usr/local/bin/spod > ~/.local/bin/spod && chmod +x ~/.local/bin/spod
+cp bin/spod ~/.local/bin/spod
 spod --version
 ```
 
