@@ -108,3 +108,16 @@ func TestPSEncodesEmptyList(t *testing.T) {
 		t.Fatalf("empty ps output: %q", got)
 	}
 }
+
+// rmi -f must parse as the force shorthand; assigning Flag.Shorthand after
+// registration does not update pflag's shorthand table.
+func TestRmiAcceptsForceShorthand(t *testing.T) {
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"--root", t.TempDir(), "rmi", "-f", "alpine:3.22"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.Execute()
+	if err == nil || strings.Contains(err.Error(), "unknown shorthand") {
+		t.Fatalf("rmi -f parsing: %v", err)
+	}
+}
