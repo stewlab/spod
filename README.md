@@ -12,13 +12,15 @@ Build in a container — no Go toolchain or C compiler needed on the host:
 ```sh
 podman build --target binary --output type=local,dest=bin .   # emits bin/spod
 podman build --tag spod .                                     # builds the distribution image
+podman build --target test .                                  # runs the test suite
 ```
 
 The first stage compiles the production binary: fully static (CGO
 against musl), `-trimpath`, and stripped with `-s -w`. The
 `--target binary` run exports just that binary into `bin/`; the second
 build finishes at the minimal Alpine image that packages the engine for
-distribution, for example as a CI job image.
+distribution, for example as a CI job image. The test target runs the
+same suite inside the container; a failing test fails the build.
 
 Once one spod binary exists, it can build the next one inside its own
 container:

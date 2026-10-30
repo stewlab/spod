@@ -4,8 +4,11 @@
 #   podman build --target binary --output type=local,dest=bin .
 #
 # Build the distribution image:
-#   podman build -t spod .
-#   docker build -t spod .
+#   podman build --tag spod .
+#   docker build --tag spod .
+#
+# Run the test suite in the container (exit code is the test result):
+#   podman build --target test .
 #
 # The binary is fully static (CGO enabled against musl). The Linux runtime
 # needs CGO for the runc/nsenter constructor that runs before the Go runtime
@@ -34,6 +37,10 @@ RUN CGO_ENABLED=1 \
     go build -trimpath -tags 'netgo osusergo' \
     -ldflags '-s -w -linkmode external -extldflags "-static"' \
     -o /out/spod ./cmd/spod
+
+# Run the unit tests; a failing suite fails the build.
+FROM build AS test
+RUN CGO_ENABLED=1 go test ./...
 
 # Artifact target for --output; placed before the runtime stage so a plain
 # build still produces the image.
