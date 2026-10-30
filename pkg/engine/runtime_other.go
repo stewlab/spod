@@ -27,3 +27,5 @@ func (e *Engine) Remove(context.Context, string, bool) error { return ErrUnsuppo
 func (e *Engine) Inspect(context.Context, string) (*Container, error) { return nil, ErrUnsupported }
 
 func (e *Engine) List(context.Context) ([]Container, error) { return nil, ErrUnsupported }
+
+func (e *Engine) Rename(context.Context, string, string) error { return ErrUnsupported }
