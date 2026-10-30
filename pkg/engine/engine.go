@@ -39,6 +39,10 @@ func New(root string) (*Engine, error) {
 	var err error
 	if root == "" {
 		root, err = DefaultRoot()
+	} else if !filepath.IsAbs(root) {
+		// A relative root would silently resolve against the caller's
+		// working directory and materialize a store there.
+		return nil, fmt.Errorf("storage root must be an absolute path: %s", root)
 	} else {
 		root, err = filepath.Abs(root)
 	}

@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+// A relative storage root would materialize the store relative to the
+// caller's working directory, so New refuses it.
+func TestNewRejectsRelativeRoot(t *testing.T) {
+	if _, err := New("spod-root"); err == nil {
+		t.Fatal("accepted a relative storage root")
+	}
+	if _, err := New("./spod-root"); err == nil {
+		t.Fatal("accepted a relative storage root")
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(filepath.Join(wd, "accepted")); err != nil {
+		t.Fatalf("rejected an absolute root: %v", err)
+	}
+}
+
 func TestDiscardRetainsDataAndRejectsEscapes(t *testing.T) {
 	e, err := New(t.TempDir())
 	if err != nil {
