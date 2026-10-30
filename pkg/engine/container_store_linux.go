@@ -334,6 +334,9 @@ func (e *Engine) Remove(ctx context.Context, name string, force bool) error {
 		}
 		_ = cont.Destroy()
 	}
+	// Drop the attach socket with the container: a leftover would make the
+	// next run of the same name wait out a stale bind.
+	_ = e.Discard(filepath.Join(e.Root, "run", name+".attach"))
 	return e.Discard(e.containerDir(name))
 }
 

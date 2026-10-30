@@ -52,15 +52,24 @@ func monitorStreams(cmd *cobra.Command, e *engine.Engine, name string, interacti
 		return engine.IO{}, nil, err
 	}
 	defer dir.Close()
+	// The previous monitor of a recreated container can still hold the
+	// attach socket briefly after its container is gone. Retry the bind
+	// while a live listener keeps answering dials; a socket that stops
+	// answering is stale and gets discarded instead.
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: address, Net: "unix"})
-	if err != nil {
+	for deadline := time.Now().Add(5 * time.Second); err != nil && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
 		if conn, dialErr := net.DialTimeout("unix", address, 200*time.Millisecond); dialErr == nil {
-			_ = conn.Close()
-		} else if info, statErr := os.Lstat(filepath.Join(e.Root, "run", name+".attach")); statErr == nil && info.Mode()&os.ModeSocket != 0 {
+			_ = conn.Close() // still owned by a live monitor; wait it out
+			listener, err = net.ListenUnix("unix", &net.UnixAddr{Name: address, Net: "unix"})
+			continue
+		}
+		if info, statErr := os.Lstat(filepath.Join(e.Root, "run", name+".attach")); statErr == nil && info.Mode()&os.ModeSocket != 0 {
 			if discardErr := e.Discard(filepath.Join(e.Root, "run", name+".attach")); discardErr == nil {
 				listener, err = net.ListenUnix("unix", &net.UnixAddr{Name: address, Net: "unix"})
 			}
 		}
+		break
 	}
 	if err != nil {
 		return engine.IO{}, nil, fmt.Errorf("creating attach socket: %w", err)
