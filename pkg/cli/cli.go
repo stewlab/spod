@@ -245,8 +245,7 @@ func NewCommand() *cobra.Command {
 			return e.RemoveImage(args[0])
 		}),
 	}
-	rmi.Flags().Bool("force", false, "Accepted for compatibility; images in use are never removed")
-	rmi.Flags().Lookup("force").Shorthand = "f"
+	rmi.Flags().BoolP("force", "f", false, "Accepted for compatibility; images in use are never removed")
 	app.AddCommand(rmi)
 	var format, kind string
 	inspect := &cobra.Command{
