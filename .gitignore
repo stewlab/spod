@@ -1,0 +1,8 @@
+/bin/
+/.test-tmp/
+/.probe/
+/.trash/
+/spod
+*.test
+*.exe
+*.out

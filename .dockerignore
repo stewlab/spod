@@ -1,0 +1,7 @@
+/.git/
+/bin/
+/.probe/
+/.trash/
+/.test-tmp/
+*.test
+*.out

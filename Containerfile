@@ -1,0 +1,43 @@
+# Containerfile for building the spod binary and a minimal runtime image.
+#
+# Build:
+#   podman build -t spod .
+#   docker build -t spod .
+#
+# The binary is fully static (CGO enabled against musl). The Linux runtime
+# needs CGO for the runc/nsenter constructor that runs before the Go runtime
+# starts; a CGO_ENABLED=0 build compiles but refuses to run containers.
+# Cross-compilation needs a C toolchain for the target architecture, so this
+# file builds for the builder platform only.
+#
+# The image runs spod as an unprivileged user. Running containers from inside
+# a container additionally requires user namespace support on the outer
+# engine, e.g. for docker:
+#   docker run --rm --userns=host --privileged spod run --rm alpine:3.22 id
+
+FROM golang:1.25-alpine AS build
+
+# Module, registry, and TLS dependencies for the build itself, plus the C
+# toolchain and kernel headers required by CGO_ENABLED=1.
+RUN apk add --no-cache git ca-certificates gcc musl-dev linux-headers
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ cmd/
+COPY pkg/ pkg/
+
+RUN CGO_ENABLED=1 \
+    go build -tags 'netgo osusergo' \
+    -ldflags '-linkmode external -extldflags "-static"' \
+    -o /out/spod ./cmd/spod
+
+FROM alpine:3.22
+
+# CA certificates for registry access over TLS.
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 spod
+
+COPY --from=build /out/spod /usr/local/bin/spod
+
+USER spod
+ENTRYPOINT ["/usr/local/bin/spod"]
