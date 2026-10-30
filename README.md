@@ -8,10 +8,10 @@ No daemon, no root service, no separately installed runtime.
 ## Build
 
 ```sh
-make build        # or: ./build.sh build — compiles bin/spod
-make test         # offline unit tests
-make test-real    # lifecycle test against alpine:3.22 (needs network)
-make install      # installs to ~/.local/bin/spod
+./build.sh build      # compiles bin/spod
+./build.sh test       # offline unit tests
+./build.sh test-real  # lifecycle test against alpine:3.22 (needs network)
+./build.sh install    # installs to ~/.local/bin/spod
 ```
 
 `build.sh` wraps the go commands with the two settings every spod build
