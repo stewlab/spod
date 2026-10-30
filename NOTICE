@@ -21,3 +21,10 @@ violate applicable laws.
 For more information, please see http://www.bis.doc.gov
 
 See also http://www.apache.org/dev/crypto.html and/or seek legal counsel.
+
+This product includes filepath-securejoin
+(github.com/cyphar/filepath-securejoin), whose source files are licensed
+under the Mozilla Public License, Version 2.0 (MPL-2.0) or BSD-3-Clause
+per file. Modifications to the MPL-2.0-licensed files remain subject to
+MPL-2.0; the license text is available in the upstream repository at
+https://github.com/cyphar/filepath-securejoin.
