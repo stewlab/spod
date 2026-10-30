@@ -244,7 +244,6 @@ func TestExtractRootfsRejectsEscapes(t *testing.T) {
 		"dotdot":               {{name: "../outside", content: "bad"}},
 		"absolute":             {{name: "/outside", content: "bad"}},
 		"nested-dotdot":        {{name: "dir/../../outside", content: "bad"}},
-		"backslash":            {{name: `dir\..\outside`, content: "bad"}},
 		"symlink-parent":       {{name: "dir", kind: tar.TypeSymlink, link: "../outside"}, {name: "dir/file", content: "bad"}},
 		"absolute-symlink":     {{name: "dir", kind: tar.TypeSymlink, link: "/"}, {name: "dir/file", content: "bad"}},
 		"internal-symlink":     {{name: "dir", kind: tar.TypeSymlink, link: "other"}, {name: "dir/file", content: "bad"}},
@@ -568,4 +567,24 @@ func TestImagesCanceledPullAndHashedReferences(t *testing.T) {
 	if e.imageDir(a) != e.imageDir(b) || len(filepath.Base(e.imageDir(a))) != 64 {
 		t.Fatal("references are not canonicalized and hashed")
 	}
+}
+
+// Backslashes are ordinary filename characters on Linux; real images carry
+// names like system-systemd\x2dcryptsetup.slice (systemd's on-disk escaping
+// of unit names). They must extract as literal files inside the rootfs.
+func TestExtractRootfsAcceptsBackslashNames(t *testing.T) {
+	base := imageTestDir(t)
+	dest := filepath.Join(base, "rootfs")
+	if err := os.Mkdir(dest, 0700); err != nil {
+		t.Fatal(err)
+	}
+	entries := []imageEntry{
+		{name: `system-systemd\x2dcryptsetup.slice`, content: "unit"},
+		{name: `dir\..\outside`, content: "safe"},
+	}
+	if err := extractRootfs(context.Background(), dest, bytes.NewReader(imageTar(t, entries...))); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, filepath.Join(dest, `system-systemd\x2dcryptsetup.slice`), "unit")
+	assertFile(t, filepath.Join(dest, `dir\..\outside`), "safe")
 }

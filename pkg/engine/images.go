@@ -400,7 +400,11 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 
 func archivePath(name string) (string, error) {
-	if strings.ContainsRune(name, '\\') || strings.ContainsRune(name, '\x00') || path.IsAbs(name) {
+	// A NUL byte or an absolute path can never be a safe relative member.
+	// Backslashes are ordinary filename characters on Linux and appear in
+	// real images: systemd escapes unit names on disk, e.g.
+	// system-systemd\x2dcryptsetup.slice.
+	if strings.ContainsRune(name, '\x00') || path.IsAbs(name) {
 		return "", fmt.Errorf("unsafe archive path %q", name)
 	}
 	for _, component := range strings.Split(name, "/") {
