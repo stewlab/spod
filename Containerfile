@@ -1,7 +1,7 @@
 # Containerfile for building the spod binary and a minimal runtime image.
 #
 # Emit the binary as a build artifact, no image involved:
-#   podman build --target binary -o type=local,dest=bin .
+#   podman build --target binary --output type=local,dest=bin .
 #
 # Build the distribution image:
 #   podman build -t spod .

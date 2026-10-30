@@ -10,14 +10,24 @@ No daemon, no root service, no separately installed runtime.
 Build in a container — no Go toolchain or C compiler needed on the host:
 
 ```sh
-podman build --target binary -o type=local,dest=bin .   # emits bin/spod
-podman build -t spod .                                  # builds the distribution image
+podman build --target binary --output type=local,dest=bin .   # emits bin/spod
+podman build --tag spod .                                     # builds the distribution image
 ```
 
 The first stage compiles the fully static binary (CGO against musl). The
 `--target binary` run exports just that binary into `bin/`; the second
 build finishes at the minimal Alpine image that packages the engine for
 distribution, for example as a CI job image.
+
+Once one spod binary exists, it can build the next one inside its own
+container:
+
+```sh
+spod run --rm -v "$PWD:/src" -w /src golang:1.25-alpine \
+  sh -c 'apk add --no-cache git gcc musl-dev linux-headers &&
+         GOWORK=off CGO_ENABLED=1 go build -trimpath -tags netgo,osusergo \
+           -ldflags "-linkmode external -extldflags -static" -o bin/spod ./cmd/spod'
+```
 
 Build on the host instead if you have Go 1.25+, a C compiler, and a
 static libc:
@@ -112,7 +122,9 @@ func main() {
 ## Boundaries
 
 - Host networking only; isolated network modes are rejected, not silently
-  mapped to host.
+  mapped to host. The host's `/etc/resolv.conf` and `/etc/hosts` are bind-
+  mounted read-only so name resolution works; a container mounting either
+  path itself overrides that.
 - No image builds, overlayfs, privileged mode, cgroup limits, SELinux
   relabeling, or NVIDIA CDI. `:z`/`:Z` mount suffixes are accepted without
   relabeling.
