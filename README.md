@@ -41,45 +41,23 @@ GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
 GOWORK=off go test ./...
 ```
 
-### Cross-compiling with Zig
+### Cross-compiling in the container
 
-`zig cc` is a single C compiler that targets every platform, so a CGO
-build for a foreign architecture needs no per-target toolchain or
-sysroot — including static musl binaries for targets where installing a
-cross-gcc is impractical. Point `CC` at it and set the Go target as
-usual:
-
-```sh
-GOWORK=off CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 \
-  CC="zig cc -target riscv64-linux-musl" \
-  go build -trimpath -tags 'netgo osusergo' \
-  -ldflags '-s -w -linkmode external -extldflags "-static"' -o bin/spod-riscv64 ./cmd/spod
-```
-
-The same recipe covers amd64, arm64, and arm. macOS targets additionally
-need the Apple SDK, which Zig does not bundle. The host-amd64 Zig build
-was verified against the real-lifecycle test suite, and riscv64 and
-arm64 artifacts link statically; pin the Zig version when it matters —
-the toolchain occasionally changes flag behavior between releases.
-
-The two environment settings are requirements, not preferences:
-
-- `GOWORK=off` builds this checkout against its own `go.mod`. An enclosing
-  `go.work` (a monorepo superproject, for example) would otherwise redirect
-  the build to a different spod checkout.
-- `CGO_ENABLED=1` links libcontainer's cgo constructor, which sets up the
-  Linux user namespace before the Go runtime starts. Without CGO the binary
-  still compiles everywhere and keeps image operations (pull, images,
-  prune, inspect); container commands return an explicit error instead of
-  failing obscurely.
-
-Install the binary to `~/.local/bin` (ensure it is on your `PATH`):
+The build stage compiles with `zig cc` — one C compiler carrying musl for
+every target — so a foreign binary needs no per-target toolchain, no
+sysroot, and no emulation: the container runs on the builder platform
+while `GOARCH` selects the binary's target.
 
 ```sh
-mkdir -p ~/.local/bin
-cp bin/spod ~/.local/bin/spod
-spod --version
+podman build --build-arg GOARCH=arm64 --target binary --output type=local,dest=bin .
+podman build --build-arg GOARCH=riscv64 --target binary --output type=local,dest=bin .
 ```
+
+Supported values: amd64 (default), arm64, riscv64, 386, arm. The
+host-amd64 Zig build was verified against the real-lifecycle test suite
+and the arm64/riscv64 artifacts link statically; Alpine's package pin
+holds the Zig version for the container build. macOS targets
+additionally need the Apple SDK, which Zig does not bundle.
 
 Then run it directly — no other container tooling involved:
 
