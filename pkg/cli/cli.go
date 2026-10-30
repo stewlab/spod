@@ -247,6 +247,7 @@ func NewCommand() *cobra.Command {
 	}
 	rmi.Flags().BoolP("force", "f", false, "Accepted for compatibility; images in use are never removed")
 	app.AddCommand(rmi)
+	addPrune(app, withStore)
 	var format, kind string
 	inspect := &cobra.Command{
 		Use: "inspect NAME", Args: cobra.ExactArgs(1), Short: "Inspect a container or image",

@@ -46,6 +46,7 @@ spod logs --tail 20 demo
 spod rm demo
 spod images
 spod rmi alpine:3.22
+spod prune            # or: spod prune --force
 spod export demo -o demo-rootfs.tar
 spod import probe/base:latest demo-rootfs.tar
 ```
@@ -53,6 +54,9 @@ spod import probe/base:latest demo-rootfs.tar
 - `export` snapshots a container's root filesystem, changes included;
   `import` turns an archive into a stored image, making captured filesystems
   reproducible starting points.
+- `prune` removes stored images no container uses. It lists what would go
+  and asks first (default No); scripts pass `--force`. Images still in use
+  are never offered, and removals land in the store's trash either way.
 - `attach` streams a detached container's live output and, when it was
   created with `run -di`, forwards stdin. Detached TTY is not supported;
   use `exec -it` for a terminal.
