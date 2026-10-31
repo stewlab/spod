@@ -43,6 +43,10 @@ RUN case "$GOARCH" in \
     esac
 
 WORKDIR /src
+# Workspace mode off: a host go.work must never alter which
+# dependencies this build resolves. .containerignore keeps the file
+# out of the context; this disables the mechanism itself.
+ENV GOWORK=off
 COPY go.mod go.sum ./
 RUN go mod download
 # The whole checkout, .git included, so the build can stamp its state:
