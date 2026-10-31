@@ -144,6 +144,13 @@ func main() {
 }
 ```
 
+## Contributing & Releases
+
+Development happens on short-lived feature branches off `main`, merged
+through pull requests gated by CI. The conventions live in
+CONTRIBUTING.md; the maintainer release runbook — how tags become
+releases and how versions are stamped — is RELEASING.md.
+
 ## Boundaries
 
 - Host networking only; isolated network modes are rejected, not silently

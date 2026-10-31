@@ -37,6 +37,12 @@ and points you at the tag command instead. Enable it locally:
 git config core.hooksPath .githooks
 ```
 
+## Releases
+
+Tags are cut on `main` by the maintainer; a `v*` tag run produces the
+release binaries. The full runbook — ruleset setup, versioning, local CI
+validation — is in RELEASING.md.
+
 ## Pull requests
 
 CI runs the same in-container suite and artifact build as checks on
