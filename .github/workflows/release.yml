@@ -72,11 +72,21 @@ jobs:
           file dist/out/*
           ./dist/out/spod-linux-amd64 --version
 
-      - name: Create the release with the binaries attached
+      - name: Package and checksum
+        # The goreleaser convention: tar.gz for unix targets, zip for
+        # windows, sha256 checksums over the archives. Each archive
+        # carries the binary under its plain name.
+        run: |
+          cd dist/out
+          for f in spod-linux-* spod-darwin-* spod-freebsd-*; do tar -czf "$f.tar.gz" "$f"; done
+          for f in spod-windows-*; do zip -q "$f.zip" "$f"; done
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Create the release with the archives attached
         # Skipped under act (no token); on GitHub the tag push publishes.
         if: env.GITHUB_TOKEN != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/out/* --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" dist/out/* --clobber
+          gh release create "$GITHUB_REF_NAME" dist/out/*.tar.gz dist/out/*.zip dist/out/checksums.txt --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/out/*.tar.gz dist/out/*.zip dist/out/checksums.txt --clobber
