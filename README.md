@@ -12,8 +12,8 @@ needed on the machine (the release page carries one file per
 architecture):
 
 ```sh
-curl -fsSL -o spod https://github.com/stewlab/spod/releases/latest/download/spod-linux-amd64
-install -m 755 spod ~/.local/bin/spod
+curl -fsSL https://github.com/stewlab/spod/releases/latest/download/spod-linux-amd64.tar.gz | tar -xz -C /tmp
+install -m 755 /tmp/spod ~/.local/bin/spod
 spod --version
 
 spod pull docker.io/library/alpine:3.22
@@ -23,10 +23,10 @@ spod run --rm -it alpine:3.22 /bin/sh
 Containers run on Linux — the engine needs the kernel (user namespaces,
 runc/libcontainer). The darwin, windows, and freebsd builds manage images
 and the store (pull, import, export, prune) and report an error for the
-container lifecycle. Other Linux architectures: `spod-linux-arm64`,
-`spod-linux-riscv64`, `spod-linux-386`, `spod-linux-arm`; other
-platforms: `spod-darwin-*`, `spod-windows-*.exe`, `spod-freebsd-*`.
-Building from source, including cross-compiling, is below.
+container lifecycle. Archives are `spod-<os>-<arch>.tar.gz` (`.zip` for
+windows) plus a `checksums.txt`; curl-installed binaries are not
+quarantined by macOS Gatekeeper. Building from source, including
+cross-compiling, is below.
 
 ## Building from Source
 
