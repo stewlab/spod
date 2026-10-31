@@ -74,7 +74,7 @@ func (e *Engine) ImportOCI(ctx context.Context, ref, path string) (*Image, error
 	if err != nil {
 		return nil, err
 	}
-	img, cleanup, err := imageFromArchive(path)
+	img, cleanup, err := imageFromArchive(path, e.Root)
 	if err != nil {
 		return nil, fmt.Errorf("read image archive %s: %w", path, err)
 	}
@@ -88,11 +88,13 @@ func (e *Engine) ImportOCI(ctx context.Context, ref, path string) (*Image, error
 // docker-save tarball. The OCI layout needs the tarball unpacked first, so
 // the archive is extracted to a temporary directory that stays alive until
 // the returned cleanup runs — the image reads blobs lazily.
-func imageFromArchive(path string) (v1.Image, func(), error) {
+func imageFromArchive(path, tmpBase string) (v1.Image, func(), error) {
 	if img, err := tarball.ImageFromPath(path, nil); err == nil {
 		return img, func() {}, nil
 	}
-	tmp, err := os.MkdirTemp("", "spod-import-oci-*")
+	// Extract beside the store: an unpacked image can be several gigabytes
+	// and /tmp is frequently a small tmpfs.
+	tmp, err := os.MkdirTemp(tmpBase, ".import-oci-*.tmp")
 	if err != nil {
 		return nil, nil, err
 	}
