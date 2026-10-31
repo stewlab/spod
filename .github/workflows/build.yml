@@ -1,0 +1,147 @@
+# Build and release spod — entirely in podman, no toolchain on the runner.
+# The `test` target runs the full Go test suite in-container (a failing test
+# fails the build); the `binary` target is a scratch stage emitting one fully
+# static binary, parameterized by the GOARCH build-arg (amd64, arm64, riscv64,
+# 386, arm — zig cc cross-compilation in-container), so the release job builds
+# every architecture from a single Containerfile.
+#
+# Local validation before this runs on GitHub (act 0.2.89 + the user podman
+# socket; the -self-hosted label runs steps directly on the host, so `podman`
+# in steps hits the real host podman — no nested containers):
+#   export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
+#   act pull_request -P ubuntu-latest=-self-hosted
+#   # tag simulation — event file in /tmp, never inside the repo:
+#   #   {"ref":"refs/tags/v0.0.0-act","before":"<sha>","after":"<sha>"}
+#   act push -e /tmp/spod-tag-event.json -P ubuntu-latest=-self-hosted
+#
+# Trigger policy — build ONCE, at the moment that matters:
+#   · PRs targeting main run test + binary-amd64 as check runs (gate merges
+#     via branch protection on main). With protection on, every main commit
+#     is a checked PR merge — so there is NO rebuild on main pushes; that
+#     would duplicate the PR run.
+#   · v* tags rebuild all five GOARCH artifacts from the tagged commit and
+#     PUBLISH a GitHub release. Release artifacts must correspond to the
+#     tag; they cannot be promoted from a PR run.
+
+name: Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+  push:
+    tags: ["v*"]
+
+# Iterate on a PR without stacking runs: a new push cancels the previous run
+# for the same PR (tag runs are never superseded).
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── Test suite (Containerfile `test` target) ─────────────────────────────
+  # No Go on the runner: the suite runs in the golang container, and the
+  # build's exit code is the test result.
+  test:
+    name: Go test suite (in-container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run the test suite in-container
+        run: podman build --target test .
+
+  # ── amd64 binary (merge-gating build check) ──────────────────────────────
+  # Proves the artifact path end-to-end on the default GOARCH: scratch-stage
+  # extraction, a runnable binary, and static linkage (CGO against musl via
+  # zig cc).
+  binary-amd64:
+    name: amd64 binary
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the amd64 binary
+        # --target binary is the scratch stage holding only /spod; emitting
+        # the default (runtime) stage would export an entire alpine rootfs.
+        run: podman build --target binary --output type=local,dest=dist/amd64 .
+
+      - name: Smoke-run and verify the binary
+        run: |
+          test -x dist/amd64/spod || { echo "::error::no binary at dist/amd64/spod"; exit 1; }
+          ./dist/amd64/spod --version
+          file dist/amd64/spod
+          # Fully static by construction; assert it, accepting the two
+          # spellings `file` uses (classic static and static-pie).
+          file dist/amd64/spod | grep -qE "statically linked|static-pie linked" \
+            || { echo "::error::spod is not statically linked"; exit 1; }
+
+  # ── Release: all GOARCH builds + GitHub publishing (v* tags only) ────────
+  # Rebuilds every supported architecture from the TAGGED commit — release
+  # artifacts can never be promoted from a PR run. The publish step is the
+  # only one needing the token; under act (local validation) secrets are
+  # empty, so the guard skips it.
+  release:
+    name: Cross-build all GOARCH + publish release
+    needs: [test, binary-amd64]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build every supported GOARCH
+        run: |
+          for g in amd64 arm64 riscv64 386 arm; do
+            echo "::group::GOARCH=$g"
+            podman build --target binary --build-arg GOARCH=$g --output type=local,dest=dist/$g .
+            echo "::endgroup::"
+          done
+
+      - name: Assemble the release tree
+        run: |
+          mkdir -p dist/out
+          for g in amd64 arm64 riscv64 386 arm; do
+            test -f dist/$g/spod || { echo "::error::dist/$g/spod missing"; exit 1; }
+            install -D -m 755 dist/$g/spod dist/out/spod-linux-$g/spod
+          done
+          file dist/out/*/spod
+          ls -lR dist/out
+
+      - name: Upload release artifact
+        # act cannot execute this action in -self-hosted mode: upload-artifact
+        # needs ACTIONS_RUNTIME_TOKEN, which act only wires up for container
+        # runs, so the step dies with "Unable to get the ACTIONS_RUNTIME_TOKEN
+        # env variable" (GitHub's runner always provides it). ACT=true is set
+        # by act itself; real GitHub runners upload normally.
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: spod-release-binaries
+          path: dist/out
+
+      - name: Publish the GitHub release
+        # The explicit `dist/out/*/*` file list is deliberate: globbing
+        # dist/out/* expands to the per-arch DIRECTORIES (this burned the
+        # engine repo once), while */* names exactly the five binaries. The
+        # || upload --clobber fallback makes the step re-runnable: a failed
+        # first attempt may have already created the (empty) release object,
+        # and a re-run would die on "release already exists" instead of
+        # finishing the upload.
+        if: env.GITHUB_TOKEN != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/out/*/* --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/out/*/* --clobber
