@@ -44,7 +44,7 @@ jobs:
   # No Go on the runner: the suite runs in the golang container, and the
   # build's exit code is the test result.
   test:
-    name: Go test suite (in-container)
+    name: Test suite (in-container)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -60,7 +60,7 @@ jobs:
   # extraction, a runnable binary, and static linkage (CGO against musl via
   # zig cc).
   binary-amd64:
-    name: amd64 binary
+    name: Binary (amd64)
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
