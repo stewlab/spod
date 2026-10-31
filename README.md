@@ -62,7 +62,7 @@ spod run --rm -v "$PWD:/src" -w /src golang:1.25-alpine \
 install -m 755 bin/spod ~/.local/bin/spod
 ```
 
-`spod --version` names its build: the tag when built from one (a
+`spod --version` (one line) and `spod version` (full build table) name the build: the tag when built from one (a
 `go install github.com/stewlab/spod/cmd/spod@v0.1.0` binary included),
 `dev-<commit>` for checkout builds — `-dirty` when the checkout carries
 uncommitted changes — and `dev` when no git metadata is available.
