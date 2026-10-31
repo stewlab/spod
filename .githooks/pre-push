@@ -1,0 +1,17 @@
+#!/bin/sh
+# Refuses pushes to main: work reaches main only through pull requests.
+# Tags and feature branches push freely; main deletions are blocked too.
+while read -r local_ref local_sha remote_ref remote_sha; do
+	case "$remote_ref" in
+	refs/heads/main)
+		if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+			echo "push refused: deleting main is not allowed" >&2
+		else
+			echo "push refused: main changes only through pull requests" >&2
+			echo "(to release, push a tag instead: git push origin vX.Y.Z)" >&2
+		fi
+		exit 1
+		;;
+	esac
+done
+exit 0
