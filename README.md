@@ -42,12 +42,11 @@ podman build --target test .                                  # runs the test su
 succeeds even while a previous spod process is still running from the old
 binary — `cp` fails with "Text file busy" in that situation.
 
-The first stage compiles the production binary: fully static (CGO
-against musl), `-trimpath`, and stripped with `-s -w`. The
-`--target binary` run exports just that binary into `bin/`; the second
-build finishes at the minimal Alpine image that packages the engine for
-distribution, for example as a CI job image. The test target runs the
-same suite inside the container; a failing test fails the build.
+The binary is fully static (CGO against musl), `-trimpath`, stripped
+with `-s -w`. `--target binary` exports just the binary into `bin/`; the
+default build finishes at the minimal Alpine image packaging the engine
+for distribution. `--target test` runs the suite in-container; a failing
+test fails the build.
 
 Once one spod binary exists, it can build the next one inside its own
 container:
@@ -77,21 +76,19 @@ install -m 755 bin/spod ~/.local/bin/spod
 
 ### Cross-compiling in the container
 
-The build stage compiles with `zig cc` — one C compiler carrying musl for
-every target — so a foreign binary needs no per-target toolchain, no
-sysroot, and no emulation: the container runs on the builder platform
-while `GOARCH` selects the binary's target.
+The build stage compiles with `zig cc` — one C compiler carrying musl
+for every target — so a foreign binary needs no per-target toolchain and
+no emulation: the container runs on the builder platform while `GOARCH`
+selects the target.
 
 ```sh
 podman build --build-arg GOARCH=arm64 --target binary --output type=local,dest=bin .
 podman build --build-arg GOARCH=riscv64 --target binary --output type=local,dest=bin .
 ```
 
-Supported values: amd64 (default), arm64, riscv64, 386, arm. The
-host-amd64 Zig build was verified against the real-lifecycle test suite
-and the arm64/riscv64 artifacts link statically; Alpine's package pin
-holds the Zig version for the container build. macOS targets
-additionally need the Apple SDK, which Zig does not bundle.
+Supported values: amd64 (default), arm64, riscv64, 386, arm. Alpine's
+package pin holds the Zig version; the artifacts link statically. macOS
+targets additionally need the Apple SDK, which Zig does not bundle.
 
 ### Testing the full lifecycle
 
