@@ -151,7 +151,8 @@ spod import-oci alpine:3.22 alpine-saved.tar
 `pkg/engine` exposes image and lifecycle operations; `pkg/cli` provides a
 Cobra command tree. **Every embedding executable must call `engine.Init()`
 as its first operation in `main`** — libcontainer re-executes the binary to
-bootstrap containers.
+bootstrap containers. `cli.StyleHelp(cmd)` applies the shared help styling
+to any command tree.
 
 ```go
 func main() {

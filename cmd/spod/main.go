@@ -13,7 +13,7 @@ import (
 func main() {
 	engine.Init()
 	if err := cli.NewCommand().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(cli.ExitCode(err))
 	}
 }

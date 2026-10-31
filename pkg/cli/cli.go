@@ -168,6 +168,7 @@ func NewCommand() *cobra.Command {
 			fmt.Print(collectVersionInfo().table())
 		},
 	})
+	StyleHelp(app)
 	store := func() (*engine.Engine, error) { return engine.New(root) }
 	withStore := func(fn func(*cobra.Command, *engine.Engine, []string) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, args []string) error {
