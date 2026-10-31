@@ -1,8 +1,9 @@
-# Build and release spod — entirely in podman, no toolchain on the runner.
+# Build spod on pull requests — entirely in podman, no toolchain on the
+# runner. Tag releases live in release.yml (GitHub-specific by design).
 # The `test` target runs the full Go test suite in-container (a failing test
 # fails the build); the `binary` target is a scratch stage emitting one fully
 # static binary, parameterized by the GOARCH build-arg (amd64, arm64, riscv64,
-# 386, arm — zig cc cross-compilation in-container), so the release job builds
+# 386, arm — zig cc cross-compilation in-container), so release.yml builds
 # every architecture from a single Containerfile.
 #
 # Local validation before this runs on GitHub (act 0.2.89 + the user podman
@@ -12,17 +13,15 @@
 #   act pull_request -P ubuntu-latest=-self-hosted
 #   # tag simulation — event file in /tmp, never inside the repo:
 #   #   {"ref":"refs/tags/v0.0.0-act","before":"<sha>","after":"<sha>"}
-#   act push -e /tmp/spod-tag-event.json -P ubuntu-latest=-self-hosted
-#
+
 # Trigger policy — build ONCE, at the moment that matters:
 #   · PRs targeting main run test + binary-amd64 as check runs (gate merges
 #     via branch protection on main). With protection on, every main commit
 #     is a checked PR merge — so there is NO rebuild on main pushes; that
 #     would duplicate the PR run.
-#   · v* tags rebuild all five GOARCH artifacts from the tagged commit and
-#     upload them as run artifacts. Artifacts must correspond to the tag;
-#     they cannot be promoted from a PR run. Publishing the release is a
-#     deliberate human act on the forge of choice (see the release job).
+#   · v* tags never run this workflow: the tag push is handled end to end
+#     by release.yml, which builds the artifacts from the tagged commit
+#     and creates the release.
 
 name: Build
 
@@ -30,8 +29,6 @@ on:
   workflow_dispatch:
   pull_request:
     branches: ["main"]
-  push:
-    tags: ["v*"]
 
 # Iterate on a PR without stacking runs: a new push cancels the previous run
 # for the same PR (tag runs are never superseded).
@@ -83,56 +80,3 @@ jobs:
           file dist/amd64/spod | grep -qE "statically linked|static-pie linked" \
             || { echo "::error::spod is not statically linked"; exit 1; }
 
-  # ── Release: all GOARCH builds + GitHub publishing (v* tags only) ────────
-  # Rebuilds every supported architecture from the TAGGED commit — release
-  # artifacts can never be promoted from a PR run. The publish step is the
-  # only one needing the token; under act (local validation) secrets are
-  # empty, so the guard skips it.
-  release:
-    name: Cross-build all GOARCH artifacts
-    needs: [test, binary-amd64]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build every supported GOARCH
-        run: |
-          for g in amd64 arm64 riscv64 386 arm; do
-            echo "::group::GOARCH=$g"
-            podman build --target binary --build-arg GOARCH=$g --output type=local,dest=dist/$g .
-            echo "::endgroup::"
-          done
-
-      - name: Assemble the release tree
-        run: |
-          mkdir -p dist/out
-          for g in amd64 arm64 riscv64 386 arm; do
-            test -f dist/$g/spod || { echo "::error::dist/$g/spod missing"; exit 1; }
-            install -D -m 755 dist/$g/spod dist/out/spod-linux-$g/spod
-          done
-          file dist/out/*/spod
-          ls -lR dist/out
-
-      - name: Upload the artifact bundle
-        # act cannot execute this action in -self-hosted mode: upload-artifact
-        # needs ACTIONS_RUNTIME_TOKEN, which act only wires up for container
-        # runs, so the step dies with "Unable to get the ACTIONS_RUNTIME_TOKEN
-        # env variable" (GitHub's runner always provides it). ACT=true is set
-        # by act itself; real GitHub runners upload normally.
-        if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: spod-release-binaries
-          path: dist/out
-
-      # Publishing the release is a deliberate human act on the forge of
-      # choice, so the workflow stops at verified artifacts: download them
-      # from this run (or the release job's summary) and attach them to the
-      # tag's release — on GitHub via the web UI or a local
-      # `gh release create v<...> <files> --generate-notes`. Keeping `gh`
-      # out of the workflow keeps every step forge-neutral (checkout and
-      # artifact upload are mirrored by Gitea/Forgejo Actions).

@@ -35,12 +35,14 @@ maintainer runbook.
    git tag -a v0.2.0 -m "spod v0.2.0: one-line summary" && git push origin v0.2.0
    ```
 
-4. The tag run in Actions builds and verifies all five GOARCH binaries
-   (amd64, arm64, riscv64, 386, arm) and uploads them as the run's
-   artifact bundle. Publish deliberately: Releases → draft a new release
-   from the tag → attach the five files, or locally
-   `gh release create v0.2.0 ./dist-out/*/* --generate-notes` with the
-   downloaded artifacts.
+4. The tag push is the whole release act: the Release workflow
+   (`.github/workflows/release.yml`) rebuilds every supported GOARCH
+   from the tagged commit — its build loop is the authoritative target
+   list — verifies the binaries, and creates the release with them
+   attached. Watch the run; the release page is the distribution point
+   (one file per architecture). If a release must be redone, fix and move the tag
+   (`git tag -f v0.2.0 main && git push -f origin v0.2.0`) — no release
+   exists yet to clobber — or attach files to it by hand.
 5. Verify the release binary reports exactly the tag: `spod --version`.
 
 ## How the version is decided at build time

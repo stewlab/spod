@@ -1,0 +1,82 @@
+# Tag-triggered release pipeline. GitHub-specific by design — this is the
+# one file to replace or delete when porting to another forge; build.yml
+# stays forge-neutral.
+#
+# A pushed v* tag is the whole release act: every supported target is
+# rebuilt from the tagged commit (release artifacts are never promoted
+# from a PR run), verified, and attached to an auto-created release.
+#
+# Linux targets build in the container (CGO against musl — full container
+# lifecycle). The darwin, windows, and freebsd targets build with plain
+# Go (CGO off): image pulls, store management, and import/export work,
+# while the container lifecycle reports ErrUnsupported — running
+# containers needs the Linux kernel.
+#
+# Local validation before this runs on GitHub (from a clean clone):
+#   export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
+#   act push -e /tmp/tag-event.json -P ubuntu-latest=-self-hosted
+#   #   {"ref":"refs/tags/v0.0.0-act","before":"<sha>","after":"<sha>"}
+# The publish step is skipped under act (no token there).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    name: Build and publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Flat, uniquely named assets: duplicate basenames collide on the
+      # release, and `releases/latest/download/<asset>` needs flat names.
+      - name: Set up Go for the darwin, windows, and freebsd targets
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Flat, uniquely named assets: duplicate basenames collide on the
+      # release, and `releases/latest/download/<asset>` needs flat names.
+      - name: Build the Linux targets in the container
+        run: |
+          mkdir -p dist/out
+          for goarch in amd64 arm64 riscv64 386 arm; do
+            podman build --build-arg GOARCH=$goarch --target binary --output type=local,dest=dist/$goarch .
+            cp dist/$goarch/spod dist/out/spod-linux-$goarch
+          done
+
+      - name: Build the darwin, windows, and freebsd targets
+        run: |
+          V="$(git describe --tags --dirty 2>/dev/null || true)"
+          for target in darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            ext=; [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags 'netgo osusergo' \
+              -ldflags "-s -w ${V:+-X github.com/stewlab/spod/pkg/cli.version=$V}" \
+              -o dist/out/spod-$os-$arch$ext ./cmd/spod
+          done
+
+      - name: Verify the binaries
+        run: |
+          file dist/out/*
+          ./dist/out/spod-linux-amd64 --version
+
+      - name: Create the release with the binaries attached
+        # Skipped under act (no token); on GitHub the tag push publishes.
+        if: env.GITHUB_TOKEN != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/out/* --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/out/* --clobber
