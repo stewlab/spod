@@ -5,6 +5,26 @@ Apache-2.0 licensed. Images pull straight from registries via
 `go-containerregistry`; Linux containers run through `runc/libcontainer`.
 No daemon, no root service, no separately installed runtime.
 
+## Quick Start
+
+Install the latest release binary and run a container — no toolchain
+needed on the machine (the release page carries one file per
+architecture):
+
+```sh
+curl -fsSL -o spod https://github.com/stewlab/spod/releases/latest/download/spod-linux-amd64
+install -m 755 spod ~/.local/bin/spod
+spod --version
+
+spod pull docker.io/library/alpine:3.22
+spod run --rm -it alpine:3.22 /bin/sh
+```
+
+Other architectures: `spod-linux-arm64`, `spod-linux-riscv64`,
+`spod-linux-386`, `spod-linux-arm`. spod ships Linux targets only — the
+engine needs the Linux kernel (user namespaces, runc/libcontainer).
+Building from source, including cross-compiling, is below.
+
 ## Build & Install
 
 Build in a container — no Go toolchain or C compiler needed on the host:

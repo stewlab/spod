@@ -37,17 +37,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Flat, uniquely named assets: duplicate basenames collide on the
+      # release, and `releases/latest/download/<asset>` needs flat names.
       - name: Build every supported GOARCH
         run: |
+          mkdir -p dist/out
           for goarch in amd64 arm64 riscv64 386 arm; do
             podman build --build-arg GOARCH=$goarch --target binary --output type=local,dest=dist/$goarch .
-            mkdir -p dist/out/spod-linux-$goarch
-            cp dist/$goarch/spod dist/out/spod-linux-$goarch/spod
+            cp dist/$goarch/spod dist/out/spod-linux-$goarch
           done
 
       - name: Verify the binaries
         run: |
-          file dist/out/*/spod
+          file dist/out/*
           ./dist/out/spod-linux-amd64/spod --version
 
       - name: Create the release with the binaries attached
@@ -56,5 +58,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/out/*/* --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" dist/out/*/* --clobber
+          gh release create "$GITHUB_REF_NAME" dist/out/* --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/out/* --clobber
