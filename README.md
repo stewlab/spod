@@ -11,9 +11,16 @@ Build in a container — no Go toolchain or C compiler needed on the host:
 
 ```sh
 podman build --target binary --output type=local,dest=bin .   # emits bin/spod
+mkdir -p ~/.local/bin && install -m 755 bin/spod ~/.local/bin/spod
+spod --version
+
 podman build --tag spod .                                     # builds the distribution image
 podman build --target test .                                  # runs the test suite
 ```
+
+`install` (rather than `cp`) replaces the file by rename, so the install
+succeeds even while a previous spod process is still running from the old
+binary — `cp` fails with "Text file busy" in that situation.
 
 The first stage compiles the production binary: fully static (CGO
 against musl), `-trimpath`, and stripped with `-s -w`. The
@@ -30,6 +37,7 @@ spod run --rm -v "$PWD:/src" -w /src golang:1.25-alpine \
   sh -c 'apk add --no-cache git gcc musl-dev linux-headers &&
          GOWORK=off CGO_ENABLED=1 go build -trimpath -tags netgo,osusergo \
            -ldflags "-s -w -linkmode external -extldflags -static" -o bin/spod ./cmd/spod'
+install -m 755 bin/spod ~/.local/bin/spod
 ```
 
 `spod --version` names its build: the tag when built from one (a
@@ -44,6 +52,7 @@ static libc:
 GOWORK=off CGO_ENABLED=1 go build -trimpath -tags 'netgo osusergo' \
   -ldflags '-s -w -linkmode external -extldflags "-static"' -o bin/spod ./cmd/spod
 GOWORK=off go test ./...
+install -m 755 bin/spod ~/.local/bin/spod
 ```
 
 ### Cross-compiling in the container
