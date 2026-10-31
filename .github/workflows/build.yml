@@ -61,7 +61,6 @@ jobs:
   # zig cc).
   binary-amd64:
     name: Binary (amd64)
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
