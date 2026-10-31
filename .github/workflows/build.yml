@@ -90,7 +90,7 @@ jobs:
   # only one needing the token; under act (local validation) secrets are
   # empty, so the guard skips it.
   release:
-    name: Cross-build all GOARCH + publish release
+    name: Cross-build all GOARCH artifacts
     needs: [test, binary-amd64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -118,7 +118,7 @@ jobs:
           file dist/out/*/spod
           ls -lR dist/out
 
-      - name: Upload release artifact
+      - name: Upload the artifact bundle
         # act cannot execute this action in -self-hosted mode: upload-artifact
         # needs ACTIONS_RUNTIME_TOKEN, which act only wires up for container
         # runs, so the step dies with "Unable to get the ACTIONS_RUNTIME_TOKEN
