@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"text/template"
@@ -58,6 +59,55 @@ func buildVersion() string {
 		return v
 	}
 	return version
+}
+
+// versionInfo is the podman-style build table: one fact per line, only
+// the facts the build actually carries.
+type versionInfo struct {
+	Version   string
+	GoVersion string
+	Commit    string
+	Built     string
+	GOOS      string
+	GOARCH    string
+}
+
+func collectVersionInfo() versionInfo {
+	vi := versionInfo{
+		Version:   buildVersion(),
+		GoVersion: runtime.Version(),
+		GOOS:      runtime.GOOS,
+		GOARCH:    runtime.GOARCH,
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				vi.Commit = s.Value
+			case "vcs.time":
+				if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
+					vi.Built = t.Format("Mon Jan 2 15:04:05 2006")
+				} else {
+					vi.Built = s.Value
+				}
+			}
+		}
+	}
+	return vi
+}
+
+func (v versionInfo) table() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-14s%s\n", "Version:", v.Version)
+	fmt.Fprintf(&b, "%-14s%s\n", "Go Version:", v.GoVersion)
+	if v.Commit != "" {
+		fmt.Fprintf(&b, "%-14s%s\n", "Git Commit:", v.Commit)
+	}
+	if v.Built != "" {
+		fmt.Fprintf(&b, "%-14s%s\n", "Built:", v.Built)
+	}
+	fmt.Fprintf(&b, "%-14s%s/%s\n", "OS/Arch:", v.GOOS, v.GOARCH)
+	return b.String()
 }
 
 // vcsVersion shortens a full VCS revision into the dev-<commit> form,
@@ -108,6 +158,17 @@ func NewCommand() *cobra.Command {
 		Version: buildVersion(), SilenceUsage: true, SilenceErrors: true,
 	}
 	app.PersistentFlags().StringVar(&root, "root", "", "Storage directory (default: SPOD_ROOT, else the platform data directory)")
+
+	// podman-style: --version prints the one-liner (cobra's Version field);
+	// the version subcommand prints the full build table.
+	app.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print detailed version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(collectVersionInfo().table())
+		},
+	})
+	StyleHelp(app)
 	store := func() (*engine.Engine, error) { return engine.New(root) }
 	withStore := func(fn func(*cobra.Command, *engine.Engine, []string) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, args []string) error {
