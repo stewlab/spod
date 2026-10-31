@@ -45,12 +45,17 @@ RUN case "$GOARCH" in \
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY cmd/ cmd/
-COPY pkg/ pkg/
+# The whole checkout, .git included, so the build can stamp its state:
+# a tagged checkout stamps the tag, an untagged clone stamps the Go
+# toolchain's vcs.revision (surfaced as dev-<commit>), and sources
+# without usable git metadata stay dev. .containerignore keeps build
+# outputs out of the context, so a clean checkout reads as clean.
+COPY . .
 
-RUN CGO_ENABLED=1 CC="zig cc -target $(cat /tmp/zigtarget)" \
+RUN V="$(git describe --tags --dirty 2>/dev/null || true)"; \
+    CGO_ENABLED=1 CC="zig cc -target $(cat /tmp/zigtarget)" \
     go build -trimpath -tags 'netgo osusergo' \
-    -ldflags '-s -w -linkmode external -extldflags "-static"' \
+    -ldflags "-s -w -linkmode external -extldflags \"-static\" ${V:+-X github.com/stewlab/spod/pkg/cli.version=$V}" \
     -o /out/spod ./cmd/spod
 
 # Run the unit tests; a failing suite fails the build.

@@ -32,6 +32,11 @@ spod run --rm -v "$PWD:/src" -w /src golang:1.25-alpine \
            -ldflags "-s -w -linkmode external -extldflags -static" -o bin/spod ./cmd/spod'
 ```
 
+`spod --version` names its build: the tag when built from one (a
+`go install github.com/stewlab/spod/cmd/spod@v0.1.0` binary included),
+`dev-<commit>` for checkout builds — `-dirty` when the checkout carries
+uncommitted changes — and `dev` when no git metadata is available.
+
 Build on the host instead if you have Go 1.25+, a C compiler, and a
 static libc:
 
@@ -86,16 +91,25 @@ spod ps
 spod stop demo && spod start demo
 spod logs --tail 20 demo
 spod rm demo
+spod rename demo demo2
 spod images
 spod rmi alpine:3.22
+spod volume ls && spod volume rm demo-home
 spod prune            # or: spod prune --force
 spod export demo -o demo-rootfs.tar
 spod import probe/base:latest demo-rootfs.tar
+spod import-oci alpine:3.22 alpine-saved.tar
 ```
 
 - `export` snapshots a container's root filesystem, changes included;
   `import` turns an archive into a stored image, making captured filesystems
   reproducible starting points.
+- `import-oci` stores a registry image from an archive — podman or docker
+  `save` output, either OCI layout or docker-save format — which is how
+  images land in the store from another engine's storage without a
+  download.
+- `rename` changes a container's name in place, mount definitions
+  included; `volume ls` / `volume rm` manage named volumes.
 - `prune` removes stored images no container uses. It lists what would go
   and asks first (default No); scripts pass `--force`. Images still in use
   are never offered, and removals land in the store's trash either way.

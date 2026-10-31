@@ -1,0 +1,20 @@
+# Build outputs must stay out of the build context: they are untracked
+# files, and anything untracked that reaches the container's tree stamps
+# -dirty into the reported version. Mirrors .gitignore.
+/bin/
+/.test-tmp/
+/.probe/
+/.trash/
+/spod
+*.test
+*.exe
+*.out
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
