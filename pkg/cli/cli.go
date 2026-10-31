@@ -255,6 +255,7 @@ func NewCommand() *cobra.Command {
 	f.StringVarP(&opts.WorkDir, "workdir", "w", "", "Working directory inside container")
 	f.StringVarP(&opts.User, "user", "u", "", "Numeric container UID[:GID]")
 	f.StringVar(&opts.Network, "network", "host", "Network mode (host only)")
+	f.StringVar(&opts.UserNS, "userns", "", "User namespace: keep-id maps your UID/GID unchanged into the container")
 	f.StringVar(&entrypoint, "entrypoint", "", "Override image entrypoint")
 	f.StringArrayVarP(&envs, "env", "e", nil, "Environment KEY=VALUE")
 	f.StringArrayVarP(&volumes, "volume", "v", nil, "Bind or named volume SOURCE:TARGET[:ro]")

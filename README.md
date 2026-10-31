@@ -109,6 +109,7 @@ SPOD_REAL_LIFECYCLE_TEST=1 GOWORK=off go test ./pkg/engine/ -run TestRealLifecyc
 spod pull docker.io/library/alpine:3.22
 spod run --rm -it -v "$PWD:/workspace" -w /workspace alpine:3.22 /bin/sh
 spod run -d --name demo alpine:3.22 sleep infinity
+spod run --rm --userns keep-id -u "$(id -u):$(id -g)" -v "$PWD:/w" alpine:3.22 touch /w/f
 spod exec -it demo /bin/sh
 spod attach demo
 spod inspect --format '{{.Status}}|{{.Image}}' demo
@@ -133,6 +134,13 @@ spod import-oci alpine:3.22 alpine-saved.tar
   `save` output, either OCI layout or docker-save format — which is how
   images land in the store from another engine's storage without a
   download.
+- `run --userns keep-id` maps your UID/GID to the same IDs inside the
+  container, like podman's keep-id: files you create in bind mounts as that
+  user are yours on the host, while container root and every other ID map
+  to your subordinate range, so an entrypoint can start as root, add a user
+  with your UID, and drop to it. It needs `newuidmap`/`newgidmap` and a
+  `/etc/subuid` and `/etc/subgid` range larger than your UID; the rootfs is
+  re-owned once at creation.
 - `rename` changes a container's name in place, mount definitions
   included; `volume ls` / `volume rm` manage named volumes.
 - `prune` removes stored images no container uses. It lists what would go
@@ -181,6 +189,8 @@ releases and how versions are stamped — is RELEASING.md.
   invoking user's privileges; this is not a sandbox for untrusted code.
 - Image ownership is normalized to the invoking user. Single-UID mapping
   covers container UID/GID 0; other image users need subordinate mappings.
+  Under `--userns keep-id`, container root is a subordinate ID and cannot
+  write host files owned by you; run as your UID for that.
 - Images and volumes held by containers refuse removal.
 - The container lifecycle requires Linux with CGO; on other platforms —
   and on Linux builds without CGO — image and store operations work and

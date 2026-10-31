@@ -124,6 +124,10 @@ type RunOptions struct {
 	Interactive bool
 	Remove      bool
 	Network     string
+	// UserNS selects the user namespace mapping: "" maps the caller to
+	// container root; "keep-id" maps the caller to its own UID/GID and
+	// container root to a subordinate ID, like podman --userns=keep-id.
+	UserNS string
 }
 
 type ExecOptions struct {

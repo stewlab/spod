@@ -42,6 +42,11 @@ type runtimeMeta struct {
 	Mounts   []Mount           `json:"mounts"`
 	TTY      bool              `json:"tty"`
 	Labels   map[string]string `json:"labels,omitempty"`
+	UserNS   string            `json:"userns,omitempty"`
+	// KeepUID and KeepGID are the container IDs the caller maps to under
+	// keep-id, fixed when the rootfs was re-owned.
+	KeepUID int `json:"keep_uid,omitempty"`
+	KeepGID int `json:"keep_gid,omitempty"`
 }
 
 // perContainerLocks guards create/state mutations within this process; a flock

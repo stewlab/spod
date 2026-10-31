@@ -23,6 +23,9 @@ import (
 // libcontainer sets on its re-exec child, so ordinary subcommands (e.g. a
 // user-facing "init" wizard) are never mistaken for container init.
 func Init() {
+	if os.Getenv(usernsHelperEnv) != "" {
+		runUsernsHelper()
+	}
 	if os.Getenv("_LIBCONTAINER_INITPIPE") == "" {
 		return
 	}

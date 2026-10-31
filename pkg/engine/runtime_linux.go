@@ -161,6 +161,7 @@ func resolveProcess(opts RunOptions, img *Image) (*runtimeMeta, error) {
 		Mounts:   opts.Mounts,
 		TTY:      opts.TTY,
 		Labels:   opts.Labels,
+		UserNS:   opts.UserNS,
 	}, nil
 }
 
@@ -175,7 +176,10 @@ func hasEnv(env []string, key string) bool {
 
 // buildConfig constructs a rootless libcontainer configuration. Networking uses
 // the host namespace (no NEWNET); cgroups are disabled.
-func (e *Engine) buildConfig(name, rootfs string, rm *runtimeMeta) (*configs.Config, error) {
+//
+// nested is true inside the storage user namespace helper (keep-id), where
+// spod is root and the mappings are expressed in that namespace's IDs.
+func (e *Engine) buildConfig(name, rootfs string, rm *runtimeMeta, nested bool) (*configs.Config, error) {
 	if rm.Hostname == "" {
 		rm.Hostname = name
 	}
@@ -235,13 +239,22 @@ func (e *Engine) buildConfig(name, rootfs string, rm *runtimeMeta) (*configs.Con
 	// cgroup namespace, and adds the user namespace.
 	specconv.ToRootless(spec)
 	uidMaps, gidMaps := idMappings()
+	if nested {
+		var err error
+		if uidMaps, err = nestedKeepIDMappings(rm.KeepUID, uidMaps); err != nil {
+			return nil, err
+		}
+		if gidMaps, err = nestedKeepIDMappings(rm.KeepGID, gidMaps); err != nil {
+			return nil, err
+		}
+	}
 	spec.Linux.UIDMappings = uidMaps
 	spec.Linux.GIDMappings = gidMaps
 
 	cfg, err := specconv.CreateLibcontainerConfig(&specconv.CreateOpts{
 		CgroupName:      name,
 		Spec:            spec,
-		RootlessEUID:    true,
+		RootlessEUID:    !nested,
 		RootlessCgroups: true,
 	})
 	if err != nil {
@@ -414,6 +427,9 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions, io IO) (int, error) {
 	if opts.Network != "" && opts.Network != "host" {
 		return -1, fmt.Errorf("unsupported network %q: spod only supports host networking", opts.Network)
 	}
+	if err := parseUserns(opts.UserNS); err != nil {
+		return -1, err
+	}
 	if opts.TTY && opts.Remove {
 		// permitted; handled below
 	}
@@ -455,6 +471,26 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions, io IO) (int, error) {
 	if rm.Hostname == "" {
 		rm.Hostname = opts.Name
 	}
+	if opts.UserNS == "keep-id" {
+		// The image is stored owned by the caller (container root under the
+		// default mapping); keep-id maps the caller to its own UID, so the
+		// rootfs is re-owned to keep every file at the same container ID.
+		rm.KeepUID, rm.KeepGID = os.Geteuid(), os.Getegid()
+		uidMaps, gidMaps := idMappings()
+		if _, err := nestedKeepIDMappings(rm.KeepUID, uidMaps); err != nil {
+			neverStarted()
+			return -1, err
+		}
+		if _, err := nestedKeepIDMappings(rm.KeepGID, gidMaps); err != nil {
+			neverStarted()
+			return -1, err
+		}
+		req := usernsRequest{Op: "keep-id-shift", Path: rootfs, UID: rm.KeepUID, GID: rm.KeepGID}
+		if err := inUserns(req, nil); err != nil {
+			neverStarted()
+			return -1, fmt.Errorf("--userns=keep-id: %w", err)
+		}
+	}
 
 	meta := &Container{
 		Name:       opts.Name,
@@ -475,71 +511,19 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions, io IO) (int, error) {
 		return -1, err
 	}
 
-	cfg, err := e.buildConfig(opts.Name, rootfs, rm)
-	if err != nil {
+	started := false
+	exitCode, err := e.launchInit(ctx, opts.Name, rootfs, rm, io, func(pid int) {
+		started = true
+		meta.Status = statusRunning
+		meta.PID = pid
+		_ = writeJSONAtomic(e.metaPath(opts.Name), meta)
+		// Release the create lock so Stop/Exec from other processes can
+		// proceed while we wait for the container to exit.
+		releaseLock()
+	})
+	if !started {
 		neverStarted()
 		return -1, err
-	}
-	if err := os.MkdirAll(e.stateDir(opts.Name), 0700); err != nil {
-		neverStarted()
-		return -1, err
-	}
-	cont, err := libcontainer.Create(e.stateDir(opts.Name), opts.Name, cfg)
-	if err != nil {
-		neverStarted()
-		return -1, err
-	}
-
-	proc := &libcontainer.Process{
-		Args:          rm.Argv,
-		Env:           rm.Env,
-		Cwd:           rm.Cwd,
-		UID:           rm.UID,
-		GID:           rm.GID,
-		Init:          true,
-		ConsoleWidth:  0,
-		ConsoleHeight: 0,
-	}
-	th, err := startProcess(cont, proc, io, rm.TTY)
-	if err != nil {
-		cont.Destroy()
-		neverStarted()
-		return -1, err
-	}
-
-	pid, _ := proc.Pid()
-	meta.Status = statusRunning
-	meta.PID = pid
-	_ = writeJSONAtomic(e.metaPath(opts.Name), meta)
-
-	// Release the create lock so Stop/Exec from other processes can proceed
-	// while we wait for the container to exit.
-	releaseLock()
-
-	stopResize := make(chan struct{})
-	go watchResize(th, stopResize)
-
-	ctxDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = cont.Signal(unix.SIGKILL)
-		case <-ctxDone:
-		}
-	}()
-
-	state, waitErr := proc.Wait()
-	close(ctxDone)
-	close(stopResize)
-	if th != nil {
-		th.Close()
-	}
-
-	exitCode := 0
-	if state != nil {
-		exitCode = state.ExitCode()
-	} else if waitErr != nil {
-		exitCode = -1
 	}
 
 	// Finalize state under the lock.
@@ -550,13 +534,81 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions, io IO) (int, error) {
 			c.PID = 0
 			_ = writeJSONAtomic(e.metaPath(opts.Name), c)
 		}
-		_ = cont.Destroy()
 		if opts.Remove {
 			_ = e.Discard(e.containerDir(opts.Name))
 		}
 		relock()
 	}
 	return exitCode, nil
+}
+
+// launchInit creates the libcontainer container for name from rm, starts its
+// init process, reports the PID through started, and waits for it to exit.
+// keep-id containers are created inside the storage user namespace helper,
+// because libcontainer must chown its state to container root, a
+// subordinate ID the caller cannot assign.
+func (e *Engine) launchInit(ctx context.Context, name, rootfs string, rm *runtimeMeta, io IO, started func(pid int)) (int, error) {
+	if rm.UserNS == "keep-id" {
+		return e.launchInitUserns(ctx, name, rootfs, rm, io, started)
+	}
+	return e.runInit(ctx, name, rootfs, rm, io, false, started)
+}
+
+func (e *Engine) runInit(ctx context.Context, name, rootfs string, rm *runtimeMeta, io IO, nested bool, started func(pid int)) (int, error) {
+	// Remove any stale libcontainer state from a prior run.
+	if old, err := libcontainer.Load(e.stateDir(name), name); err == nil {
+		_ = old.Destroy()
+	}
+	cfg, err := e.buildConfig(name, rootfs, rm, nested)
+	if err != nil {
+		return -1, err
+	}
+	if err := os.MkdirAll(e.stateDir(name), 0700); err != nil {
+		return -1, err
+	}
+	cont, err := libcontainer.Create(e.stateDir(name), name, cfg)
+	if err != nil {
+		return -1, err
+	}
+	defer cont.Destroy()
+	proc := &libcontainer.Process{
+		Args: rm.Argv,
+		Env:  rm.Env,
+		Cwd:  rm.Cwd,
+		UID:  rm.UID,
+		GID:  rm.GID,
+		Init: true,
+	}
+	th, err := startProcess(cont, proc, io, rm.TTY)
+	if err != nil {
+		return -1, err
+	}
+	pid, _ := proc.Pid()
+	started(pid)
+
+	stopResize := make(chan struct{})
+	go watchResize(th, stopResize)
+	ctxDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = cont.Signal(unix.SIGKILL)
+		case <-ctxDone:
+		}
+	}()
+	state, waitErr := proc.Wait()
+	close(ctxDone)
+	close(stopResize)
+	if th != nil {
+		th.Close()
+	}
+	if state != nil {
+		return state.ExitCode(), nil
+	}
+	if waitErr != nil {
+		return -1, nil
+	}
+	return 0, nil
 }
 
 // Start re-launches a previously created, stopped container using its persisted
@@ -591,61 +643,16 @@ func (e *Engine) Start(ctx context.Context, name string, io IO) (int, error) {
 		return -1, fmt.Errorf("cannot start %s: missing runtime metadata: %w", name, err)
 	}
 
-	// Remove any stale libcontainer state from a prior run.
-	if old, err := libcontainer.Load(e.stateDir(name), name); err == nil {
-		_ = old.Destroy()
-	}
-
-	cfg, err := e.buildConfig(name, e.rootfsDir(name), rm)
-	if err != nil {
+	started := false
+	exitCode, err := e.launchInit(ctx, name, e.rootfsDir(name), rm, io, func(pid int) {
+		started = true
+		meta.Status = statusRunning
+		meta.PID = pid
+		_ = writeJSONAtomic(e.metaPath(name), meta)
+		releaseLock()
+	})
+	if !started {
 		return -1, err
-	}
-	if err := os.MkdirAll(e.stateDir(name), 0700); err != nil {
-		return -1, err
-	}
-	cont, err := libcontainer.Create(e.stateDir(name), name, cfg)
-	if err != nil {
-		return -1, err
-	}
-	proc := &libcontainer.Process{
-		Args: rm.Argv,
-		Env:  rm.Env,
-		Cwd:  rm.Cwd,
-		UID:  rm.UID,
-		GID:  rm.GID,
-		Init: true,
-	}
-	th, err := startProcess(cont, proc, io, rm.TTY)
-	if err != nil {
-		cont.Destroy()
-		return -1, err
-	}
-	pid, _ := proc.Pid()
-	meta.Status = statusRunning
-	meta.PID = pid
-	_ = writeJSONAtomic(e.metaPath(name), meta)
-	releaseLock()
-
-	stopResize := make(chan struct{})
-	go watchResize(th, stopResize)
-	ctxDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = cont.Signal(unix.SIGKILL)
-		case <-ctxDone:
-		}
-	}()
-
-	state, _ := proc.Wait()
-	close(ctxDone)
-	close(stopResize)
-	if th != nil {
-		th.Close()
-	}
-	exitCode := 0
-	if state != nil {
-		exitCode = state.ExitCode()
 	}
 	relock, lerr := e.lockContainer(context.Background(), name)
 	if lerr == nil {
@@ -654,7 +661,6 @@ func (e *Engine) Start(ctx context.Context, name string, io IO) (int, error) {
 			c.PID = 0
 			_ = writeJSONAtomic(e.metaPath(name), c)
 		}
-		_ = cont.Destroy()
 		relock()
 	}
 	return exitCode, nil
