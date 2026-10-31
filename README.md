@@ -20,9 +20,12 @@ spod pull docker.io/library/alpine:3.22
 spod run --rm -it alpine:3.22 /bin/sh
 ```
 
-Other architectures: `spod-linux-arm64`, `spod-linux-riscv64`,
-`spod-linux-386`, `spod-linux-arm`. spod ships Linux targets only — the
-engine needs the Linux kernel (user namespaces, runc/libcontainer).
+Containers run on Linux — the engine needs the kernel (user namespaces,
+runc/libcontainer). The darwin, windows, and freebsd builds manage images
+and the store (pull, import, export, prune) and report an error for the
+container lifecycle. Other Linux architectures: `spod-linux-arm64`,
+`spod-linux-riscv64`, `spod-linux-386`, `spod-linux-arm`; other
+platforms: `spod-darwin-*`, `spod-windows-*.exe`, `spod-freebsd-*`.
 Building from source, including cross-compiling, is below.
 
 ## Building from Source
@@ -74,21 +77,21 @@ GOWORK=off go test ./...
 install -m 755 bin/spod ~/.local/bin/spod
 ```
 
-### Cross-compiling in the container
+### Cross-compiling
 
-The build stage compiles with `zig cc` — one C compiler carrying musl
-for every target — so a foreign binary needs no per-target toolchain and
-no emulation: the container runs on the builder platform while `GOARCH`
-selects the target.
+The Linux targets cross-compile in the container: `GOARCH` selects amd64
+(default), arm64, riscv64, 386, arm — zig cc carries musl, no per-target
+toolchain, no emulation; Alpine's package pin holds the Zig version.
 
 ```sh
 podman build --build-arg GOARCH=arm64 --target binary --output type=local,dest=bin .
 podman build --build-arg GOARCH=riscv64 --target binary --output type=local,dest=bin .
 ```
 
-Supported values: amd64 (default), arm64, riscv64, 386, arm. Alpine's
-package pin holds the Zig version; the artifacts link statically. macOS
-targets additionally need the Apple SDK, which Zig does not bundle.
+The darwin, windows, and freebsd targets build with plain Go and CGO off
+— no Apple SDK needed: image pulls, store management, and import/export
+work, while the container lifecycle reports `ErrUnsupported`. The
+release workflow ships all of them.
 
 ### Testing the full lifecycle
 
@@ -178,3 +181,6 @@ releases and how versions are stamped — is RELEASING.md.
 - Image ownership is normalized to the invoking user. Single-UID mapping
   covers container UID/GID 0; other image users need subordinate mappings.
 - Images and volumes held by containers refuse removal.
+- The container lifecycle requires Linux with CGO; on other platforms —
+  and on Linux builds without CGO — image and store operations work and
+  lifecycle methods report `ErrUnsupported`.
