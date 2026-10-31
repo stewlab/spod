@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -587,4 +588,45 @@ func TestExtractRootfsAcceptsBackslashNames(t *testing.T) {
 	}
 	assertFile(t, filepath.Join(dest, `system-systemd\x2dcryptsetup.slice`), "unit")
 	assertFile(t, filepath.Join(dest, `dir\..\outside`), "safe")
+}
+
+// A mode-0000 directory in an image layer (systemd's tmpfiles bakes
+// placeholders like /run/systemd/dissect-root into built images) must not
+// survive extraction: the container's own setup cannot traverse it and the
+// container never starts. Permission-less directories are made traversable.
+func TestExtractNormalizesZeroPermissionDirectories(t *testing.T) {
+	dest := t.TempDir()
+	headers := []tar.Header{
+		{Name: "run/", Mode: int64(0o755) | int64(fs.ModeDir)},
+		{Name: "run/systemd/", Mode: int64(0o755) | int64(fs.ModeDir)},
+		{Name: "run/systemd/dissect-root/", Mode: int64(fs.ModeDir)},
+		{Name: "run/systemd/dissect-root/keep", Mode: int64(0o400)},
+	}
+	var archiveBuf bytes.Buffer
+	tw := tar.NewWriter(&archiveBuf)
+	for _, h := range headers {
+		if err := tw.WriteHeader(&h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractRootfs(context.Background(), dest, bytes.NewReader(archiveBuf.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(filepath.Join(dest, "run/systemd/dissect-root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("permission-less directory survived as %o", got)
+	}
+	secret, err := os.Lstat(filepath.Join(dest, "run/systemd/dissect-root/keep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secret.Mode().Perm() != 0o400 {
+		t.Fatalf("file mode not preserved: %o", secret.Mode().Perm())
+	}
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//go:build linux
+//go:build linux && cgo
 
 package engine
 
@@ -212,6 +212,82 @@ func TestRealLifecycleAlpine(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.Root, "containers", "real-long")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("remove left container state behind: %v", err)
+	}
+}
+
+// TestRealRenameRestartWithVolume covers renaming a container that has run
+// with a named volume. The runtime metadata keeps its own copy of the mount
+// sources; if they do not follow the volume move, the next start binds a
+// path that no longer exists and dies during container init.
+func TestRealRenameRestartWithVolume(t *testing.T) {
+	realLifecycleEnabled(t)
+	const ref = "docker.io/library/alpine:3.22"
+	e := testEngine(t)
+	ctx := context.Background()
+
+	volume := filepath.Join(e.Root, "volumes", "renamer-home", "_data")
+	if err := os.MkdirAll(volume, 0700); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan int, 1)
+	go func() {
+		code, _ := e.Run(ctx, RunOptions{
+			Name:    "renamer",
+			Image:   ref,
+			Command: []string{"/bin/sh", "-c", "sleep 60"},
+			Mounts:  []Mount{{Source: volume, Target: "/data"}},
+		}, IO{})
+		done <- code
+	}()
+	waitRunning(t, e, "renamer")
+	var execOut bytes.Buffer
+	code, err := e.Exec(ctx, "renamer", ExecOptions{
+		Command: []string{"/bin/sh", "-c", "echo persisted > /data/marker"},
+	}, IO{Stdout: &execOut, Stderr: &execOut})
+	if err != nil || code != 0 {
+		t.Fatalf("exec: code=%d err=%v output=%q", code, err, execOut.String())
+	}
+	if err := e.Stop(ctx, "renamer", 5*time.Second); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	<-done
+
+	if err := e.Rename(ctx, "renamer", "renamer-moved"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if _, err := os.Stat(volume); !os.IsNotExist(err) {
+		t.Fatalf("old volume dir survived the rename: %v", err)
+	}
+	movedVolume := filepath.Join(e.Root, "volumes", "renamer-moved-home", "_data")
+	if _, err := os.Stat(movedVolume); err != nil {
+		t.Fatalf("volume did not follow the rename: %v", err)
+	}
+
+	restarted := make(chan int, 1)
+	go func() {
+		code, err := e.Start(ctx, "renamer-moved", IO{})
+		if err != nil {
+			t.Errorf("start after rename: %v", err)
+		}
+		restarted <- code
+	}()
+	waitRunning(t, e, "renamer-moved")
+	execOut.Reset()
+	code, err = e.Exec(ctx, "renamer-moved", ExecOptions{
+		Command: []string{"/bin/sh", "-c", "cat /data/marker"},
+	}, IO{Stdout: &execOut, Stderr: &execOut})
+	if err != nil || code != 0 {
+		t.Fatalf("exec after rename: code=%d err=%v output=%q", code, err, execOut.String())
+	}
+	if !strings.Contains(execOut.String(), "persisted") {
+		t.Fatalf("volume content lost across rename: %q", execOut.String())
+	}
+	if err := e.Stop(ctx, "renamer-moved", 5*time.Second); err != nil {
+		t.Fatalf("stop after rename: %v", err)
+	}
+	<-restarted
+	if err := e.Remove(ctx, "renamer-moved", true); err != nil {
+		t.Fatalf("remove: %v", err)
 	}
 }
 

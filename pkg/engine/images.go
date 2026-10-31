@@ -577,11 +577,24 @@ func finishDirectories(root *os.Root, directories map[string]fs.FileMode) error 
 	}
 	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
 	for _, name := range names {
-		if err := root.Chmod(name, directories[name]); err != nil {
+		if err := root.Chmod(name, usableDirMode(directories[name])); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// usableDirMode normalizes directories whose archive mode carries no
+// permission bits at all: systemd's tmpfiles creates placeholders like
+// /run/systemd/dissect-root with mode 0000 as an access lock, and a
+// container whose rootfs contains one cannot start — the runtime's own
+// setup fails to traverse it. A directory with no bits is made traversable;
+// every other mode is preserved exactly, as are all file modes.
+func usableDirMode(mode fs.FileMode) fs.FileMode {
+	if mode.Perm() == 0 {
+		return 0o755
+	}
+	return mode
 }
 
 func copyRootfs(ctx context.Context, source, dest string) error {
@@ -614,7 +627,7 @@ func copyRootfs(ctx context.Context, source, dest string) error {
 			if err := dst.MkdirAll(name, 0700); err != nil {
 				return err
 			}
-			directories[name] = mode
+			directories[name] = usableDirMode(mode)
 		case mode&fs.ModeSymlink != 0:
 			target, err := src.Readlink(name)
 			if err != nil {

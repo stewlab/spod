@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"text/template"
 	"time"
@@ -20,6 +21,59 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stewlab/spod/pkg/engine"
 )
+
+// version is the release stamp, overridable at build time with
+// -X github.com/stewlab/spod/pkg/cli.version=...; every other build
+// reports its true state through buildVersion instead of pretending a
+// release exists.
+var version = "dev"
+
+// buildVersion reports the release stamp when the build set one, the
+// module version for `go install ...@vx.y.z` binaries, and otherwise
+// derives dev-<commit> from the Go toolchain's VCS stamp, which `go
+// build` records for any checkout with usable git metadata. Sources
+// without one (a tarball) stay "dev".
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+	if v := bi.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	var rev string
+	dirty := false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if v, ok := vcsVersion(rev, dirty); ok {
+		return v
+	}
+	return version
+}
+
+// vcsVersion shortens a full VCS revision into the dev-<commit> form,
+// reporting false when no usable revision was recorded.
+func vcsVersion(rev string, dirty bool) (string, bool) {
+	if len(rev) < 7 {
+		return "", false
+	}
+	if len(rev) > 7 {
+		rev = rev[:7]
+	}
+	if dirty {
+		return "dev-" + rev + "-dirty", true
+	}
+	return "dev-" + rev, true
+}
 
 type exitError int
 
@@ -51,7 +105,7 @@ func NewCommand() *cobra.Command {
 	var root string
 	app := &cobra.Command{
 		Use: "spod", Short: "Standalone, rootless, daemonless OCI containers",
-		Version: "0.1.0", SilenceUsage: true, SilenceErrors: true,
+		Version: buildVersion(), SilenceUsage: true, SilenceErrors: true,
 	}
 	app.PersistentFlags().StringVar(&root, "root", "", "Storage directory (default: SPOD_ROOT, else the platform data directory)")
 	store := func() (*engine.Engine, error) { return engine.New(root) }
@@ -245,9 +299,9 @@ func NewCommand() *cobra.Command {
 			return e.RemoveImage(args[0])
 		}),
 	}
-	rmi.Flags().Bool("force", false, "Accepted for compatibility; images in use are never removed")
-	rmi.Flags().Lookup("force").Shorthand = "f"
+	rmi.Flags().BoolP("force", "f", false, "Accepted for compatibility; images in use are never removed")
 	app.AddCommand(rmi)
+	addPrune(app, withStore)
 	var format, kind string
 	inspect := &cobra.Command{
 		Use: "inspect NAME", Args: cobra.ExactArgs(1), Short: "Inspect a container or image",
