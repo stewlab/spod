@@ -18,3 +18,5 @@
 Thumbs.db
 *.tmp
 *.log
+go.work
+go.work.sum
