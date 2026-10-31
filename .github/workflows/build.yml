@@ -20,8 +20,9 @@
 #     is a checked PR merge — so there is NO rebuild on main pushes; that
 #     would duplicate the PR run.
 #   · v* tags rebuild all five GOARCH artifacts from the tagged commit and
-#     PUBLISH a GitHub release. Release artifacts must correspond to the
-#     tag; they cannot be promoted from a PR run.
+#     upload them as run artifacts. Artifacts must correspond to the tag;
+#     they cannot be promoted from a PR run. Publishing the release is a
+#     deliberate human act on the forge of choice (see the release job).
 
 name: Build
 
@@ -94,8 +95,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -131,17 +130,10 @@ jobs:
           name: spod-release-binaries
           path: dist/out
 
-      - name: Publish the GitHub release
-        # The explicit `dist/out/*/*` file list is deliberate: globbing
-        # dist/out/* expands to the per-arch DIRECTORIES (this burned the
-        # engine repo once), while */* names exactly the five binaries. The
-        # || upload --clobber fallback makes the step re-runnable: a failed
-        # first attempt may have already created the (empty) release object,
-        # and a re-run would die on "release already exists" instead of
-        # finishing the upload.
-        if: env.GITHUB_TOKEN != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" dist/out/*/* --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" dist/out/*/* --clobber
+      # Publishing the release is a deliberate human act on the forge of
+      # choice, so the workflow stops at verified artifacts: download them
+      # from this run (or the release job's summary) and attach them to the
+      # tag's release — on GitHub via the web UI or a local
+      # `gh release create v<...> <files> --generate-notes`. Keeping `gh`
+      # out of the workflow keeps every step forge-neutral (checkout and
+      # artifact upload are mirrored by Gitea/Forgejo Actions).
