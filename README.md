@@ -107,8 +107,10 @@ SPOD_REAL_LIFECYCLE_TEST=1 GOWORK=off go test ./pkg/engine/ -run TestRealLifecyc
 
 ```sh
 spod pull docker.io/library/alpine:3.22
+spod build -t localhost/app:dev --build-arg VERSION=1.2 .
 spod run --rm -it -v "$PWD:/workspace" -w /workspace alpine:3.22 /bin/sh
 spod run -d --name demo alpine:3.22 sleep infinity
+spod run --rm --userns keep-id -u "$(id -u):$(id -g)" -v "$PWD:/w" alpine:3.22 touch /w/f
 spod exec -it demo /bin/sh
 spod attach demo
 spod inspect --format '{{.Status}}|{{.Image}}' demo
@@ -126,6 +128,23 @@ spod import probe/base:latest demo-rootfs.tar
 spod import-oci alpine:3.22 alpine-saved.tar
 ```
 
+- `build` builds an image from `CONTEXT/Containerfile` (else `Dockerfile`;
+  `-f` picks another) without a daemon or BuildKit. Every instruction is
+  supported, including multi-stage builds, `--target`, `COPY --from` a stage
+  or image, `COPY`/`ADD --chown`/`--chmod`, `ADD` of URLs and local tar
+  archives, `ARG`/`--build-arg`, and `.containerignore`/`.dockerignore`.
+  `RUN` steps execute as rootless containers with host networking and
+  Podman's default capabilities; stages the target does not need are
+  skipped. Not supported: heredocs, `RUN --mount`/`--security`, `RUN
+  --network` other than `host`, and `ONBUILD` triggers of base images.
+  There is no layer cache — each build starts from the base image — and
+  the result is one squashed layer.
+- Containers get Podman's default capability set (`CHOWN`, `DAC_OVERRIDE`,
+  `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`,
+  `SETPCAP`, `SETUID`, `SYS_CHROOT`), effective for root and a bounding set
+  for other users so setuid tools such as `sudo` work; all of it is
+  confined to the user namespace. `-u`/`USER` accept names from the
+  image's `/etc/passwd` and `/etc/group`.
 - `export` snapshots a container's root filesystem, changes included;
   `import` turns an archive into a stored image, making captured filesystems
   reproducible starting points.
@@ -133,6 +152,13 @@ spod import-oci alpine:3.22 alpine-saved.tar
   `save` output, either OCI layout or docker-save format — which is how
   images land in the store from another engine's storage without a
   download.
+- `run --userns keep-id` maps your UID/GID to the same IDs inside the
+  container, like podman's keep-id: files you create in bind mounts as that
+  user are yours on the host, while container root and every other ID map
+  to your subordinate range, so an entrypoint can start as root, add a user
+  with your UID, and drop to it. It needs `newuidmap`/`newgidmap` and a
+  `/etc/subuid` and `/etc/subgid` range larger than your UID; the rootfs is
+  re-owned once at creation.
 - `rename` changes a container's name in place, mount definitions
   included; `volume ls` / `volume rm` manage named volumes.
 - `prune` removes stored images no container uses. It lists what would go
@@ -174,13 +200,17 @@ releases and how versions are stamped — is RELEASING.md.
   mapped to host. The host's `/etc/resolv.conf` and `/etc/hosts` are bind-
   mounted read-only so name resolution works; a container mounting either
   path itself overrides that.
-- No image builds, overlayfs, privileged mode, cgroup limits, SELinux
+- No overlayfs, privileged mode, cgroup limits, SELinux
   relabeling, or NVIDIA CDI. `:z`/`:Z` mount suffixes are accepted without
   relabeling.
 - Bind mounts hand containers host files, devices, and sockets with the
   invoking user's privileges; this is not a sandbox for untrusted code.
 - Image ownership is normalized to the invoking user. Single-UID mapping
   covers container UID/GID 0; other image users need subordinate mappings.
+  Under `--userns keep-id`, container root is a subordinate ID and cannot
+  write host files owned by you; run as your UID for that. Extended
+  attributes, including file capabilities set with `setcap`, do not survive
+  into stored images, built or pulled.
 - Images and volumes held by containers refuse removal.
 - The container lifecycle requires Linux with CGO; on other platforms —
   and on Linux builds without CGO — image and store operations work and

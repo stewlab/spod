@@ -5,7 +5,9 @@ go 1.25.0
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/containerd/console v1.0.5
+	github.com/cyphar/filepath-securejoin v0.7.0
 	github.com/google/go-containerregistry v0.22.1
+	github.com/moby/patternmatcher v0.6.1
 	github.com/muesli/termenv v0.16.0
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/spf13/cobra v1.10.2
@@ -21,7 +23,6 @@ require (
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/checkpoint-restore/go-criu/v8 v8.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
-	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -38,6 +39,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/net v0.55.0 // indirect
 )
 

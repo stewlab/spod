@@ -255,6 +255,7 @@ func NewCommand() *cobra.Command {
 	f.StringVarP(&opts.WorkDir, "workdir", "w", "", "Working directory inside container")
 	f.StringVarP(&opts.User, "user", "u", "", "Numeric container UID[:GID]")
 	f.StringVar(&opts.Network, "network", "host", "Network mode (host only)")
+	f.StringVar(&opts.UserNS, "userns", "", "User namespace: keep-id maps your UID/GID unchanged into the container")
 	f.StringVar(&entrypoint, "entrypoint", "", "Override image entrypoint")
 	f.StringArrayVarP(&envs, "env", "e", nil, "Environment KEY=VALUE")
 	f.StringArrayVarP(&volumes, "volume", "v", nil, "Bind or named volume SOURCE:TARGET[:ro]")
@@ -344,6 +345,44 @@ func NewCommand() *cobra.Command {
 		}),
 	}
 	app.AddCommand(pull)
+	var buildOpts engine.BuildOptions
+	var buildArgs []string
+	build := &cobra.Command{
+		Use: "build [options] [CONTEXT]", Args: cobra.MaximumNArgs(1),
+		Short: "Build an image from a Containerfile",
+		Long: `Build an image from a Containerfile (or Dockerfile) in CONTEXT, default ".".
+Each RUN executes in a rootless container with host networking. The image is
+stored as a single squashed layer; file capabilities (setcap) are not kept.`,
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			buildOpts.Context = "."
+			if len(args) == 1 {
+				buildOpts.Context = args[0]
+			}
+			buildOpts.BuildArgs = map[string]string{}
+			for _, kv := range buildArgs {
+				k, v, ok := strings.Cut(kv, "=")
+				if !ok {
+					// Like other engines, a bare name takes its value from the environment.
+					if v, ok = os.LookupEnv(k); !ok {
+						continue
+					}
+				}
+				buildOpts.BuildArgs[k] = v
+			}
+			img, err := e.Build(cmd.Context(), buildOpts, streams(cmd))
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), img.Reference)
+			return nil
+		}),
+	}
+	build.Flags().StringVarP(&buildOpts.Tag, "tag", "t", "", "Name the built image (required)")
+	build.Flags().StringVarP(&buildOpts.File, "file", "f", "", "Containerfile path (default: CONTEXT/Containerfile, then CONTEXT/Dockerfile)")
+	build.Flags().StringArrayVar(&buildArgs, "build-arg", nil, "Build argument NAME=VALUE")
+	build.Flags().StringVar(&buildOpts.Target, "target", "", "Build stage to produce (default: the last)")
+	_ = build.MarkFlagRequired("tag")
+	app.AddCommand(build)
 	app.AddCommand(&cobra.Command{
 		Use: "images", Args: cobra.NoArgs, Short: "List stored images",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {

@@ -124,6 +124,10 @@ type RunOptions struct {
 	Interactive bool
 	Remove      bool
 	Network     string
+	// UserNS selects the user namespace mapping: "" maps the caller to
+	// container root; "keep-id" maps the caller to its own UID/GID and
+	// container root to a subordinate ID, like podman --userns=keep-id.
+	UserNS string
 }
 
 type ExecOptions struct {
@@ -132,6 +136,21 @@ type ExecOptions struct {
 	WorkDir string
 	User    string
 	TTY     bool
+}
+
+// BuildOptions describes a Containerfile build.
+type BuildOptions struct {
+	// Context is the build context directory COPY and ADD read from.
+	Context string
+	// File is the Containerfile path; empty selects Containerfile, then
+	// Dockerfile, in Context.
+	File string
+	// Tag is the reference the built image is stored under.
+	Tag string
+	// BuildArgs override ARG defaults.
+	BuildArgs map[string]string
+	// Target selects the stage to build; empty builds the last one.
+	Target string
 }
 
 type IO struct {
