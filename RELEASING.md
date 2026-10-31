@@ -36,11 +36,11 @@ maintainer runbook.
    ```
 
 4. The tag push is the whole release act: the Release workflow
-   (`.github/workflows/release.yml`) rebuilds all five GOARCH binaries
-   (amd64, arm64, riscv64, 386, arm) from the tagged commit, verifies
-   them, and creates the release with the binaries attached. Watch the
-   run; the release page is the distribution point (one file per
-   architecture). If a release must be redone, fix and move the tag
+   (`.github/workflows/release.yml`) rebuilds every supported GOARCH
+   from the tagged commit — its build loop is the authoritative target
+   list — verifies the binaries, and creates the release with them
+   attached. Watch the run; the release page is the distribution point
+   (one file per architecture). If a release must be redone, fix and move the tag
    (`git tag -f v0.2.0 main && git push -f origin v0.2.0`) — no release
    exists yet to clobber — or attach files to it by hand.
 5. Verify the release binary reports exactly the tag: `spod --version`.
