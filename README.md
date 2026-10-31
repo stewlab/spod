@@ -25,7 +25,7 @@ Other architectures: `spod-linux-arm64`, `spod-linux-riscv64`,
 engine needs the Linux kernel (user namespaces, runc/libcontainer).
 Building from source, including cross-compiling, is below.
 
-## Build & Install
+## Building from Source
 
 Build in a container — no Go toolchain or C compiler needed on the host:
 
@@ -93,11 +93,7 @@ and the arm64/riscv64 artifacts link statically; Alpine's package pin
 holds the Zig version for the container build. macOS targets
 additionally need the Apple SDK, which Zig does not bundle.
 
-Then run it directly — no other container tooling involved:
-
-```sh
-spod run --rm -it -v "$PWD:/workspace" -w /workspace alpine:3.22 /bin/sh
-```
+### Testing the full lifecycle
 
 Tests that run real containers are opt-in; this exercises the full
 lifecycle against `docker.io/library/alpine:3.22`, while plain tests stay
