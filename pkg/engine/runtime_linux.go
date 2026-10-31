@@ -114,7 +114,7 @@ func subIDRange(path string) (base uint32, size uint32, ok bool) {
 
 // resolveProcess merges image config with run options into a concrete process
 // and the engine-private runtimeMeta.
-func resolveProcess(opts RunOptions, img *Image) (*runtimeMeta, error) {
+func resolveProcess(opts RunOptions, img *Image, rootfs string) (*runtimeMeta, error) {
 	entrypoint := img.Config.Entrypoint
 	if opts.Entrypoint != nil {
 		entrypoint = opts.Entrypoint
@@ -148,7 +148,10 @@ func resolveProcess(opts RunOptions, img *Image) (*runtimeMeta, error) {
 	}
 	uid, gid, err := parseUser(userStr)
 	if err != nil {
-		return nil, err
+		// Names resolve through the image's /etc/passwd and /etc/group.
+		if uid, gid, err = resolveUser(rootfs, strings.TrimSpace(userStr)); err != nil {
+			return nil, fmt.Errorf("user %q: %w", userStr, err)
+		}
 	}
 
 	return &runtimeMeta{
@@ -174,6 +177,13 @@ func hasEnv(env []string, key string) bool {
 	return false
 }
 
+// defaultCapabilities is Podman's default container capability set.
+var defaultCapabilities = []string{
+	"CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL",
+	"CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP",
+	"CAP_SETUID", "CAP_SYS_CHROOT",
+}
+
 // buildConfig constructs a rootless libcontainer configuration. Networking uses
 // the host namespace (no NEWNET); cgroups are disabled.
 //
@@ -192,6 +202,15 @@ func (e *Engine) buildConfig(name, rootfs string, rm *runtimeMeta, nested bool) 
 	spec.Process.Env = rm.Env
 	spec.Process.Cwd = rm.Cwd
 	spec.Process.User = specs.User{UID: uint32(rm.UID), GID: uint32(rm.GID)}
+	// Podman's defaults: its capability set, held only by root processes
+	// (others keep it as the bounding set for setuid binaries such as sudo),
+	// and no_new_privileges off. All of it is confined to the user namespace.
+	spec.Process.NoNewPrivileges = false
+	spec.Process.Capabilities = &specs.LinuxCapabilities{Bounding: defaultCapabilities}
+	if rm.UID == 0 {
+		spec.Process.Capabilities.Effective = defaultCapabilities
+		spec.Process.Capabilities.Permitted = defaultCapabilities
+	}
 
 	for _, m := range rm.Mounts {
 		opt := []string{"rbind"}
@@ -463,7 +482,7 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions, io IO) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	rm, err := resolveProcess(opts, img)
+	rm, err := resolveProcess(opts, img, rootfs)
 	if err != nil {
 		neverStarted()
 		return -1, err
@@ -551,22 +570,24 @@ func (e *Engine) launchInit(ctx context.Context, name, rootfs string, rm *runtim
 	if rm.UserNS == "keep-id" {
 		return e.launchInitUserns(ctx, name, rootfs, rm, io, started)
 	}
-	return e.runInit(ctx, name, rootfs, rm, io, false, started)
+	return e.runInit(ctx, e.stateDir(name), name, rootfs, rm, io, false, started)
 }
 
-func (e *Engine) runInit(ctx context.Context, name, rootfs string, rm *runtimeMeta, io IO, nested bool, started func(pid int)) (int, error) {
+// runInit runs rm's init process in a libcontainer container whose state
+// lives in stateDir, destroying the container when it exits.
+func (e *Engine) runInit(ctx context.Context, stateDir, name, rootfs string, rm *runtimeMeta, io IO, nested bool, started func(pid int)) (int, error) {
 	// Remove any stale libcontainer state from a prior run.
-	if old, err := libcontainer.Load(e.stateDir(name), name); err == nil {
+	if old, err := libcontainer.Load(stateDir, name); err == nil {
 		_ = old.Destroy()
 	}
 	cfg, err := e.buildConfig(name, rootfs, rm, nested)
 	if err != nil {
 		return -1, err
 	}
-	if err := os.MkdirAll(e.stateDir(name), 0700); err != nil {
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
 		return -1, err
 	}
-	cont, err := libcontainer.Create(e.stateDir(name), name, cfg)
+	cont, err := libcontainer.Create(stateDir, name, cfg)
 	if err != nil {
 		return -1, err
 	}
@@ -690,7 +711,9 @@ func (e *Engine) Exec(ctx context.Context, name string, opts ExecOptions, io IO)
 	if opts.User != "" {
 		uid, gid, err = parseUser(opts.User)
 		if err != nil {
-			return -1, err
+			if uid, gid, err = resolveUser(e.rootfsDir(name), strings.TrimSpace(opts.User)); err != nil {
+				return -1, fmt.Errorf("user %q: %w", opts.User, err)
+			}
 		}
 	}
 	rm, _ := e.loadRuntimeMeta(name)
@@ -714,6 +737,9 @@ func (e *Engine) Exec(ctx context.Context, name string, opts ExecOptions, io IO)
 		UID:  uid,
 		GID:  gid,
 		Init: false,
+	}
+	if uid != 0 {
+		proc.Capabilities = &configs.Capabilities{Bounding: defaultCapabilities}
 	}
 	th, err := startProcess(cont, proc, io, opts.TTY)
 	if err != nil {

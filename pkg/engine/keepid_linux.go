@@ -38,7 +38,7 @@ func runInitOp(req usernsRequest, _ io.Writer) error {
 	// stays to destroy the libcontainer state.
 	signal.Ignore(unix.SIGINT, unix.SIGTERM, unix.SIGHUP)
 	e := &Engine{Root: p.Root}
-	code, err := e.runInit(context.Background(), p.Name, p.Rootfs, p.Runtime,
+	code, err := e.runInit(context.Background(), e.stateDir(p.Name), p.Name, p.Rootfs, p.Runtime,
 		IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}, true,
 		func(pid int) { fmt.Fprintf(usernsReport, "pid %d\n", pid) })
 	if err != nil {
