@@ -40,7 +40,8 @@ maintainer runbook.
    from the tagged commit — its build loop is the authoritative target
    list — verifies the binaries, packages them as
    `spod-<os>-<arch>.tar.gz` (`.zip` for windows) with a `checksums.txt`,
-   and creates the release with the archives attached. Watch the run; the release page is the distribution point
+   and creates the release with the archives and the checksum file
+   attached. Watch the run; the release page is the distribution point
    (one file per architecture). If a release must be redone, fix and move the tag
    (`git tag -f v0.2.0 main && git push -f origin v0.2.0`) — no release
    exists yet to clobber — or attach files to it by hand.
@@ -59,7 +60,8 @@ version. The chain lives in `pkg/cli.buildVersion`.
 
 The workflows run under [act](https://github.com/nektos/act) before they
 run on the forge; the canonical invocations are documented at the top of
-`.github/workflows/build.yml`:
+the workflows — `.github/workflows/build.yml` for PR checks and
+`.github/workflows/release.yml` for tag runs:
 
 ```sh
 export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock

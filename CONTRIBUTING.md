@@ -25,8 +25,8 @@ GitHub's private vulnerability reporting instead of a public issue.
 
 - Commit subjects: lowercase imperative with a prefix (`feat:`, `fix:`,
   `docs:`, `ci:`, `build:`, `chore:`) — `git log` shows the house style.
-  Keep commits granular; pull requests rebase-merge so `main` stays
-  linear.
+  Keep commits granular; pull requests land as merge commits once the
+  required checks pass.
 
 ## Local push guard (recommended)
 

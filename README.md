@@ -13,7 +13,7 @@ architecture):
 
 ```sh
 curl -fsSL https://github.com/stewlab/spod/releases/latest/download/spod-linux-amd64.tar.gz | tar -xz -C /tmp
-install -m 755 /tmp/spod ~/.local/bin/spod
+install -m 755 /tmp/spod-linux-amd64 ~/.local/bin/spod
 spod --version
 
 spod pull docker.io/library/alpine:3.22
@@ -22,8 +22,9 @@ spod run --rm -it alpine:3.22 /bin/sh
 
 Containers run on Linux — the engine needs the kernel (user namespaces,
 runc/libcontainer). The darwin, windows, and freebsd builds manage images
-and the store (pull, import, export, prune) and report an error for the
-container lifecycle. Archives are `spod-<os>-<arch>.tar.gz` (`.zip` for
+and the store (pull, import, import-oci, prune) and report an error for
+everything that needs a container: the lifecycle, `build` (its `RUN`
+steps run containers), and `export`. Archives are `spod-<os>-<arch>.tar.gz` (`.zip` for
 windows) plus a `checksums.txt`; curl-installed binaries are not
 quarantined by macOS Gatekeeper. Building from source, including
 cross-compiling, is below.
@@ -63,7 +64,7 @@ install -m 755 bin/spod ~/.local/bin/spod
 ```
 
 `spod --version` (one line) and `spod version` (full build table) name the build: the tag when built from one (a
-`go install github.com/stewlab/spod/cmd/spod@v0.1.0` binary included),
+`go install github.com/stewlab/spod/cmd/spod@v0.3.0` binary included),
 `dev-<commit>` for checkout builds — `-dirty` when the checkout carries
 uncommitted changes — and `dev` when no git metadata is available.
 
@@ -89,9 +90,9 @@ podman build --build-arg GOARCH=riscv64 --target binary --output type=local,dest
 ```
 
 The darwin, windows, and freebsd targets build with plain Go and CGO off
-— no Apple SDK needed: image pulls, store management, and import/export
-work, while the container lifecycle reports `ErrUnsupported`. The
-release workflow ships all of them.
+— no Apple SDK needed: image pulls and store management, including
+`import`/`import-oci`, work, while `build`, `export`, and the container
+lifecycle report `ErrUnsupported`. The release workflow ships all of them.
 
 ### Testing the full lifecycle
 
