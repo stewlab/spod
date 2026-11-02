@@ -48,7 +48,8 @@ library (Firecracker-class) that boots a Linux guest with minimal setup.
 It runs on Linux (KVM) and macOS (Hypervisor.framework) and is Podman's
 default machine provider on macOS — so the pattern "OCI container inside
 a libkrun microVM" is already proven in production, with crun as the
-in-guest runtime.
+in-guest runtime. It has no Windows backend; Windows keeps the WSL2
+packaging story described under Non-goals.
 
 Why it fits spod:
 
@@ -71,11 +72,10 @@ Alternatives considered and deferred:
   packaging, virtiofs sharing, vznat networking, Rosetta x86) in Go —
   months of work duplicating a mature stack, and it dilutes spod's
   daemonless identity. Deferred.
-- **ws-level drivers.** ws already integrates external container tooling
-  (Runtime Drivers) and ships working darwin/windows binaries. A ws
-  driver for Apple `container` or `podman machine` gives mac users a
-  working `ws` in weeks without touching spod. This is the near-term
-  cross-platform answer; the spod driver below is the long-term one.
+- **Embedder-level integration.** An application embedding spod can
+  bridge to VM-based runtimes itself (Apple `container`, podman
+  machine); that is the embedder's cross-platform strategy, outside the
+  engine's scope.
 - **QEMU/vfkit VMs.** What Podman used before libkrun: heavier, slower
   start, more memory. No reason to skip libkrun.
 
