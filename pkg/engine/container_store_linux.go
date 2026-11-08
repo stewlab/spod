@@ -386,3 +386,20 @@ func (e *Engine) List(ctx context.Context) ([]Container, error) {
 	}
 	return out, nil
 }
+
+// PruneContainers removes all stopped or exited containers to storage trash.
+func (e *Engine) PruneContainers(ctx context.Context) ([]string, error) {
+	containers, err := e.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pruned []string
+	for _, c := range containers {
+		if c.Status != "running" {
+			if err := e.Remove(ctx, c.Name, false); err == nil {
+				pruned = append(pruned, c.Name)
+			}
+		}
+	}
+	return pruned, nil
+}

@@ -17,9 +17,10 @@ import (
 
 func addPrune(app *cobra.Command, withStore storeHandler) {
 	var force bool
+	var pruneTrash bool
 	prune := &cobra.Command{
 		Use: "prune", Args: cobra.NoArgs,
-		Short: "Remove stored images no container uses (retained in storage trash)",
+		Short: "Remove stored images no container uses (and optionally clean storage trash)",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
 			images, err := e.Images()
 			if err != nil {
@@ -38,36 +39,46 @@ func addPrune(app *cobra.Command, withStore storeHandler) {
 				}
 			}
 			out := cmd.OutOrStdout()
-			if len(unused) == 0 {
+			if len(unused) == 0 && !pruneTrash {
 				fmt.Fprintln(out, "Nothing to prune: every stored image is used by a container.")
 				return nil
 			}
-			for _, img := range unused {
-				fmt.Fprintf(out, "  %s (%s)\n", shortImageRef(img.Reference), humanTime(img.Created))
-			}
-			if !force {
-				if !stdinIsTerminal() {
-					return fmt.Errorf("%d unused image(s) would be removed; re-run with --force to remove them (they are kept in the storage trash)", len(unused))
+			if len(unused) > 0 {
+				for _, img := range unused {
+					fmt.Fprintf(out, "  %s (%s)\n", shortImageRef(img.Reference), humanTime(img.Created))
 				}
-				confirmed, err := promptYesNo(cmd.InOrStdin(), out, fmt.Sprintf("Remove the %d unused image(s) above? They are kept in the storage trash. [y/N] ", len(unused)))
+				if !force {
+					if !stdinIsTerminal() {
+						return fmt.Errorf("%d unused image(s) would be removed; re-run with --force to remove them (they are kept in the storage trash)", len(unused))
+					}
+					confirmed, err := promptYesNo(cmd.InOrStdin(), out, fmt.Sprintf("Remove the %d unused image(s) above? They are kept in the storage trash. [y/N] ", len(unused)))
+					if err != nil {
+						return err
+					}
+					if !confirmed {
+						fmt.Fprintln(out, "Nothing removed.")
+						return nil
+					}
+				}
+				for _, img := range unused {
+					if err := e.RemoveImage(img.Reference); err != nil {
+						return err
+					}
+					fmt.Fprintf(out, "Removed %s (retained in the storage trash)\n", shortImageRef(img.Reference))
+				}
+			}
+			if pruneTrash {
+				count, freed, err := e.CleanTrash(0)
 				if err != nil {
 					return err
 				}
-				if !confirmed {
-					fmt.Fprintln(out, "Nothing removed.")
-					return nil
-				}
-			}
-			for _, img := range unused {
-				if err := e.RemoveImage(img.Reference); err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "Removed %s (retained in the storage trash)\n", shortImageRef(img.Reference))
+				fmt.Fprintf(out, "Purged %d item(s) from storage trash, freeing %s.\n", count, humanBytes(freed))
 			}
 			return nil
 		}),
 	}
 	prune.Flags().BoolVar(&force, "force", false, "Remove without asking (for scripts)")
+	prune.Flags().BoolVar(&pruneTrash, "trash", false, "Also purge discarded items from storage trash")
 	app.AddCommand(prune)
 }
 

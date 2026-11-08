@@ -311,20 +311,129 @@ func NewCommand() *cobra.Command {
 	}
 	rm.Flags().BoolVarP(&force, "force", "f", false, "Stop container first")
 	app.AddCommand(rm)
+
+	var psFormat string
+	var psQuiet bool
+	var psJSON bool
+	var psAll bool
+	psRun := withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
+		list, err := e.List(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if list == nil {
+			list = []engine.Container{}
+		}
+		if psJSON || psFormat == "json" {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(list)
+		}
+		if psQuiet {
+			for _, c := range list {
+				fmt.Fprintln(cmd.OutOrStdout(), c.Name)
+			}
+			return nil
+		}
+		renderContainerTable(cmd.OutOrStdout(), list)
+		return nil
+	})
 	ps := &cobra.Command{
-		Use: "ps", Args: cobra.NoArgs, Short: "List containers",
-		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
-			list, err := e.List(cmd.Context())
+		Use: "ps", Aliases: []string{"list", "ls"}, Args: cobra.NoArgs, Short: "List containers",
+		RunE: psRun,
+	}
+	ps.Flags().StringVar(&psFormat, "format", "", "Output format ('json' or custom)")
+	ps.Flags().BoolVarP(&psQuiet, "quiet", "q", false, "Print only container names")
+	ps.Flags().BoolVar(&psJSON, "json", false, "Output as JSON")
+	ps.Flags().BoolVarP(&psAll, "all", "a", false, "Show all containers (default)")
+	app.AddCommand(ps)
+
+	containerCmd := &cobra.Command{
+		Use:     "container",
+		Aliases: []string{"containers"},
+		Short:   "Manage containers",
+		RunE:    psRun,
+	}
+	containerCmd.Flags().StringVar(&psFormat, "format", "", "Output format ('json' or custom)")
+	containerCmd.Flags().BoolVarP(&psQuiet, "quiet", "q", false, "Print only container names")
+	containerCmd.Flags().BoolVar(&psJSON, "json", false, "Output as JSON")
+	containerCmd.Flags().BoolVarP(&psAll, "all", "a", false, "Show all containers (default)")
+
+	cList := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls", "ps"},
+		Args:    cobra.NoArgs,
+		Short:   "List containers",
+		RunE:    psRun,
+	}
+	cList.Flags().StringVar(&psFormat, "format", "", "Output format ('json' or custom)")
+	cList.Flags().BoolVarP(&psQuiet, "quiet", "q", false, "Print only container names")
+	cList.Flags().BoolVar(&psJSON, "json", false, "Output as JSON")
+	cList.Flags().BoolVarP(&psAll, "all", "a", false, "Show all containers (default)")
+
+	var cRmForce bool
+	cRm := &cobra.Command{
+		Use:   "rm NAME",
+		Args:  cobra.ExactArgs(1),
+		Short: "Remove a container (retained in storage trash)",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			return e.Remove(cmd.Context(), args[0], cRmForce)
+		}),
+	}
+	cRm.Flags().BoolVarP(&cRmForce, "force", "f", false, "Stop container first")
+
+	cStart := &cobra.Command{
+		Use:   "start NAME",
+		Args:  cobra.ExactArgs(1),
+		Short: "Restart a stopped container in the background",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			return launch(cmd, e, "start", args[0], nil)
+		}),
+	}
+
+	var cStopTimeout time.Duration
+	cStop := &cobra.Command{
+		Use:   "stop NAME",
+		Args:  cobra.ExactArgs(1),
+		Short: "Stop a container with SIGTERM, then SIGKILL after timeout",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			return e.Stop(cmd.Context(), args[0], cStopTimeout)
+		}),
+	}
+	cStop.Flags().DurationVar(&cStopTimeout, "timeout", 10*time.Second, "Grace period")
+
+	cInspect := &cobra.Command{
+		Use:   "inspect NAME",
+		Args:  cobra.ExactArgs(1),
+		Short: "Inspect a container",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			cont, err := e.Inspect(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			if list == nil {
-				list = []engine.Container{}
-			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(list)
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(cont)
 		}),
 	}
-	app.AddCommand(ps)
+
+	cPrune := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove stopped containers (retained in storage trash)",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
+			pruned, err := e.PruneContainers(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(pruned) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Nothing to prune: every container is running.")
+				return nil
+			}
+			for _, name := range pruned {
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed container %s (retained in storage trash)\n", name)
+			}
+			return nil
+		}),
+	}
+
+	containerCmd.AddCommand(cList, cRm, cStart, cStop, cInspect, cPrune)
+	app.AddCommand(containerCmd)
 	rename := &cobra.Command{
 		Use: "rename OLD_NAME NEW_NAME", Args: cobra.ExactArgs(2),
 		Short: "Rename a stopped container (volumes, logs, and state move with it)",
@@ -383,16 +492,85 @@ stored as a single squashed layer; file capabilities (setcap) are not kept.`,
 	build.Flags().StringVar(&buildOpts.Target, "target", "", "Build stage to produce (default: the last)")
 	_ = build.MarkFlagRequired("tag")
 	app.AddCommand(build)
-	app.AddCommand(&cobra.Command{
-		Use: "images", Args: cobra.NoArgs, Short: "List stored images",
-		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
-			images, err := e.Images()
+	var imgFormat string
+	var imgQuiet bool
+	var imgJSON bool
+	imagesRun := withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
+		images, err := e.Images()
+		if err != nil {
+			return err
+		}
+		if images == nil {
+			images = []engine.Image{}
+		}
+		if imgJSON || imgFormat == "json" {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(images)
+		}
+		if imgQuiet {
+			for _, img := range images {
+				fmt.Fprintln(cmd.OutOrStdout(), shortImageRef(img.Reference))
+			}
+			return nil
+		}
+		renderImageTable(cmd.OutOrStdout(), images)
+		return nil
+	})
+	imagesCmd := &cobra.Command{
+		Use: "images", Aliases: []string{"list", "ls"}, Args: cobra.NoArgs, Short: "List stored images",
+		RunE: imagesRun,
+	}
+	imagesCmd.Flags().StringVar(&imgFormat, "format", "", "Output format ('json' or custom)")
+	imagesCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image references")
+	imagesCmd.Flags().BoolVar(&imgJSON, "json", false, "Output as JSON")
+	app.AddCommand(imagesCmd)
+
+	imageCmd := &cobra.Command{
+		Use:     "image",
+		Short:   "Manage images",
+		RunE:    imagesRun,
+	}
+	imageCmd.Flags().StringVar(&imgFormat, "format", "", "Output format ('json' or custom)")
+	imageCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image references")
+	imageCmd.Flags().BoolVar(&imgJSON, "json", false, "Output as JSON")
+
+	imgList := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls", "images"},
+		Args:    cobra.NoArgs,
+		Short:   "List stored images",
+		RunE:    imagesRun,
+	}
+	imgList.Flags().StringVar(&imgFormat, "format", "", "Output format ('json' or custom)")
+	imgList.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image references")
+	imgList.Flags().BoolVar(&imgJSON, "json", false, "Output as JSON")
+
+	imgRm := &cobra.Command{
+		Use:     "rm IMAGE",
+		Aliases: []string{"rmi"},
+		Args:    cobra.ExactArgs(1),
+		Short:   "Remove a stored image (retained in storage trash)",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			return e.RemoveImage(args[0])
+		}),
+	}
+	imgRm.Flags().BoolP("force", "f", false, "Accepted for compatibility")
+
+	imgInspect := &cobra.Command{
+		Use:   "inspect IMAGE",
+		Args:  cobra.ExactArgs(1),
+		Short: "Inspect an image",
+		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
+			img, err := e.InspectImage(args[0])
 			if err != nil {
 				return err
 			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(images)
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(img)
 		}),
-	})
+	}
+
+	imageCmd.AddCommand(imgList, imgRm, imgInspect)
+	app.AddCommand(imageCmd)
+
 	rmi := &cobra.Command{
 		Use: "rmi IMAGE", Args: cobra.ExactArgs(1), Short: "Remove a stored image (retained in storage trash)",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, args []string) error {
@@ -402,6 +580,7 @@ stored as a single squashed layer; file capabilities (setcap) are not kept.`,
 	rmi.Flags().BoolP("force", "f", false, "Accepted for compatibility; images in use are never removed")
 	app.AddCommand(rmi)
 	addPrune(app, withStore)
+	addTrash(app, withStore)
 	var format, kind string
 	inspect := &cobra.Command{
 		Use: "inspect NAME", Args: cobra.ExactArgs(1), Short: "Inspect a container or image",
