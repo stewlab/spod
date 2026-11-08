@@ -11,8 +11,8 @@ import (
 	"github.com/stewlab/spod/pkg/engine"
 )
 
-// humanBytes converts bytes to human-readable units.
-func humanBytes(b int64) string {
+// HumanBytes converts bytes to human-readable units.
+func HumanBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
 		return fmt.Sprintf("%d B", b)
@@ -23,6 +23,10 @@ func humanBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func humanBytes(b int64) string {
+	return HumanBytes(b)
 }
 
 // renderContainerTable formats a slice of containers as a clean aligned table.
