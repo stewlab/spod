@@ -69,22 +69,23 @@ func (e *Engine) ListTrash() ([]TrashItem, error) {
 			item.ItemType = "file"
 		}
 
-		item.Size = dirSize(fullPath)
+		if info, sErr := entry.Info(); sErr == nil {
+			item.Size = info.Size()
+		}
 		items = append(items, item)
 	}
 
 	return items, nil
 }
 
-func dirSize(path string) int64 {
-	var total int64
-	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if err == nil && info != nil && !info.IsDir() {
-			total += info.Size()
+func safeRemoveAll(path string) error {
+	_ = filepath.Walk(path, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && fi.IsDir() {
+			_ = os.Chmod(p, 0700)
 		}
 		return nil
 	})
-	return total
+	return os.RemoveAll(path)
 }
 
 // CleanTrash purges items in the storage trash directory older than olderThan (or all if olderThan == 0).
@@ -118,10 +119,11 @@ func (e *Engine) CleanTrash(olderThan time.Duration) (int, int64, error) {
 			}
 		}
 
-		size := dirSize(fullPath)
-		if err := os.RemoveAll(fullPath); err == nil {
+		if info, sErr := entry.Info(); sErr == nil {
+			freed += info.Size()
+		}
+		if err := safeRemoveAll(fullPath); err == nil {
 			count++
-			freed += size
 		}
 	}
 
