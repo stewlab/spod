@@ -123,7 +123,10 @@ spod rename demo demo2
 spod images
 spod rmi alpine:3.22
 spod volume ls && spod volume rm demo-home
-spod prune            # or: spod prune --force
+spod prune            # or: spod prune --force (or --trash to also purge storage trash)
+spod container prune  # remove stopped containers (retained in storage trash)
+spod trash list       # inspect recoverable storage trash
+spod trash clean      # or: spod trash clean --older-than 48h --force
 spod export demo -o demo-rootfs.tar
 spod import probe/base:latest demo-rootfs.tar
 spod import-oci alpine:3.22 alpine-saved.tar
