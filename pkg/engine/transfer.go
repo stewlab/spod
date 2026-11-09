@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"runtime"
+	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"

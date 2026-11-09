@@ -29,3 +29,5 @@ func (e *Engine) Inspect(context.Context, string) (*Container, error) { return n
 func (e *Engine) List(context.Context) ([]Container, error) { return nil, ErrUnsupported }
 
 func (e *Engine) Rename(context.Context, string, string) error { return ErrUnsupported }
+
+func (e *Engine) PruneContainers(context.Context) ([]string, error) { return nil, ErrUnsupported }

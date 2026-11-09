@@ -98,7 +98,7 @@ func TestLogsTail(t *testing.T) {
 func TestPSEncodesEmptyList(t *testing.T) {
 	cmd := NewCommand()
 	out := &bytes.Buffer{}
-	cmd.SetArgs([]string{"--root", t.TempDir(), "ps"})
+	cmd.SetArgs([]string{"--root", t.TempDir(), "ps", "--json"})
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
 	if err := cmd.Execute(); err != nil {

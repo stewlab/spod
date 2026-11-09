@@ -58,6 +58,9 @@ var usernsOps = map[string]func(usernsRequest, io.Writer) error{
 		return shiftTree(req.Path, keepIDShift(req.UID), keepIDShift(req.GID))
 	},
 	"run-init": runInitOp,
+	"trash-remove": func(req usernsRequest, _ io.Writer) error {
+		return safeRemoveAllCore(req.Path)
+	},
 }
 
 // runUsernsHelper is the helper-process entry point, dispatched from Init. It
