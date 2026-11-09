@@ -5,6 +5,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -62,20 +63,39 @@ func addTrash(app *cobra.Command, withStore storeHandler) {
 		Aliases: []string{"prune", "empty", "purge"},
 		Short:   "Permanently purge discarded items from storage trash",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
+			if olderThan < 0 {
+				return fmt.Errorf("--older-than duration cannot be negative: %v", olderThan)
+			}
 			items, err := e.ListTrash()
 			if err != nil {
 				return err
 			}
-			if len(items) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Storage trash is already empty.")
+			now := time.Now()
+			var eligible []engine.TrashItem
+			var eligibleSize int64
+			for _, it := range items {
+				if olderThan > 0 {
+					if it.DiscardedAt.IsZero() {
+						// Malformed or unknown timestamp: keep item
+						continue
+					}
+					if now.Sub(it.DiscardedAt) < olderThan {
+						continue
+					}
+				}
+				eligible = append(eligible, it)
+				eligibleSize += it.Size
+			}
+			if len(eligible) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No eligible items in storage trash to purge.")
 				return nil
 			}
 			out := cmd.OutOrStdout()
 			if !forceClean {
 				if !stdinIsTerminal() {
-					return fmt.Errorf("%d item(s) in storage trash; re-run with --force to purge them permanently", len(items))
+					return fmt.Errorf("%d eligible item(s) in storage trash; re-run with --force to purge them permanently", len(eligible))
 				}
-				confirmed, err := promptYesNo(cmd.InOrStdin(), out, fmt.Sprintf("Permanently purge %d item(s) from storage trash? This cannot be undone. [y/N] ", len(items)))
+				confirmed, err := promptYesNo(cmd.InOrStdin(), out, fmt.Sprintf("Permanently purge %d eligible item(s) (%s) from global storage trash (%s)? This cannot be undone. [y/N] ", len(eligible), humanBytes(eligibleSize), filepath.Join(e.Root, "trash")))
 				if err != nil {
 					return err
 				}
@@ -86,7 +106,7 @@ func addTrash(app *cobra.Command, withStore storeHandler) {
 			}
 			count, freed, err := e.CleanTrash(olderThan)
 			if err != nil {
-				return err
+				return fmt.Errorf("purging trash: %w", err)
 			}
 			fmt.Fprintf(out, "Purged %d item(s) from storage trash, freeing %s.\n", count, humanBytes(freed))
 			return nil

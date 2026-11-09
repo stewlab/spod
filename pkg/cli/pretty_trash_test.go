@@ -164,3 +164,65 @@ func TestTrashCLI(t *testing.T) {
 		t.Fatalf("expected empty trash, got:\n%s", out.String())
 	}
 }
+
+func TestCLIContractsAndFormatting(t *testing.T) {
+	root := t.TempDir()
+
+	// 1. Negative older-than must fail before mutations
+	cmd := NewCommand()
+	out := &bytes.Buffer{}
+	cmd.SetArgs([]string{"--root", root, "trash", "clean", "--force", "--older-than", "-1h"})
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error on negative older-than duration, got nil")
+	}
+
+	// 2. Container prune on empty store
+	cmd = NewCommand()
+	out.Reset()
+	cmd.SetArgs([]string{"--root", root, "container", "prune"})
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "No containers to prune.") {
+		t.Fatalf("expected 'No containers to prune.', got %q", out.String())
+	}
+
+	// 3. Create dummy container and test ps --format
+	cDir := filepath.Join(root, "containers", "test-format-cont")
+	if err := os.MkdirAll(cDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	contData := `{"Name":"test-format-cont","Image":"alpine:3.22","Status":"exited","Entrypoint":["/bin/sh"],"Options":{"Command":["-c","echo hi"]}}`
+	if err := os.WriteFile(filepath.Join(cDir, "container.json"), []byte(contData), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd = NewCommand()
+	out.Reset()
+	cmd.SetArgs([]string{"--root", root, "ps", "--format", "{{.Name}}={{.Status}}"})
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != "test-format-cont=exited" {
+		t.Fatalf("expected 'test-format-cont=exited', got %q", out.String())
+	}
+
+	// 4. Test ps table output includes entrypoint + command
+	cmd = NewCommand()
+	out.Reset()
+	cmd.SetArgs([]string{"--root", root, "ps"})
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "/bin/sh -c echo hi") {
+		t.Fatalf("expected combined entrypoint and command in table, got:\n%s", out.String())
+	}
+}

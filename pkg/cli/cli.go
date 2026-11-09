@@ -327,6 +327,18 @@ func NewCommand() *cobra.Command {
 		if psJSON || psFormat == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(list)
 		}
+		if psFormat != "" {
+			t, err := template.New("format").Option("missingkey=error").Parse(psFormat + "\n")
+			if err != nil {
+				return fmt.Errorf("invalid format template: %w", err)
+			}
+			for _, c := range list {
+				if err := t.Execute(cmd.OutOrStdout(), c); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		if psQuiet {
 			for _, c := range list {
 				fmt.Fprintln(cmd.OutOrStdout(), c.Name)
@@ -418,15 +430,21 @@ func NewCommand() *cobra.Command {
 		Short: "Remove stopped containers (retained in storage trash)",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
 			pruned, err := e.PruneContainers(cmd.Context())
+			out := cmd.OutOrStdout()
+			for _, name := range pruned {
+				fmt.Fprintf(out, "Removed container %s (retained in storage trash)\n", name)
+			}
 			if err != nil {
-				return err
+				return fmt.Errorf("pruning containers: %w", err)
 			}
 			if len(pruned) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Nothing to prune: every container is running.")
+				list, lErr := e.List(cmd.Context())
+				if lErr == nil && len(list) == 0 {
+					fmt.Fprintln(out, "No containers to prune.")
+				} else {
+					fmt.Fprintln(out, "Nothing to prune: all containers are running.")
+				}
 				return nil
-			}
-			for _, name := range pruned {
-				fmt.Fprintf(cmd.OutOrStdout(), "Removed container %s (retained in storage trash)\n", name)
 			}
 			return nil
 		}),
@@ -506,9 +524,28 @@ stored as a single squashed layer; file capabilities (setcap) are not kept.`,
 		if imgJSON || imgFormat == "json" {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(images)
 		}
+		if imgFormat != "" {
+			t, err := template.New("format").Option("missingkey=error").Parse(imgFormat + "\n")
+			if err != nil {
+				return fmt.Errorf("invalid format template: %w", err)
+			}
+			for _, img := range images {
+				if err := t.Execute(cmd.OutOrStdout(), img); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		if imgQuiet {
 			for _, img := range images {
-				fmt.Fprintln(cmd.OutOrStdout(), shortImageRef(img.Reference))
+				id := img.Digest
+				if strings.HasPrefix(id, "sha256:") {
+					id = strings.TrimPrefix(id, "sha256:")
+				}
+				if len(id) > 12 {
+					id = id[:12]
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), id)
 			}
 			return nil
 		}
@@ -520,17 +557,17 @@ stored as a single squashed layer; file capabilities (setcap) are not kept.`,
 		RunE: imagesRun,
 	}
 	imagesCmd.Flags().StringVar(&imgFormat, "format", "", "Output format ('json' or custom)")
-	imagesCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image references")
+	imagesCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image IDs")
 	imagesCmd.Flags().BoolVar(&imgJSON, "json", false, "Output as JSON")
 	app.AddCommand(imagesCmd)
 
 	imageCmd := &cobra.Command{
-		Use:     "image",
-		Short:   "Manage images",
-		RunE:    imagesRun,
+		Use:   "image",
+		Short: "Manage images",
+		RunE:  imagesRun,
 	}
 	imageCmd.Flags().StringVar(&imgFormat, "format", "", "Output format ('json' or custom)")
-	imageCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image references")
+	imageCmd.Flags().BoolVarP(&imgQuiet, "quiet", "q", false, "Print only image IDs")
 	imageCmd.Flags().BoolVar(&imgJSON, "json", false, "Output as JSON")
 
 	imgList := &cobra.Command{
@@ -710,9 +747,17 @@ func launch(cmd *cobra.Command, e *engine.Engine, mode, name string, opts *engin
 		return err
 	}
 	var args []string
-	// Preserve the command's embedding path (for example: ws spod).
-	for node := cmd.Parent(); node != nil && node.Parent() != nil; node = node.Parent() {
-		args = append([]string{node.Name()}, args...)
+	// Find the root of the spod command tree.
+	// Only include outer parent commands if spod is embedded (e.g. ws spod).
+	// Subcommands inside spod (e.g. "container") must NOT be in the re-exec prefix.
+	spodRoot := cmd
+	for spodRoot.Parent() != nil && spodRoot.Name() != "spod" {
+		spodRoot = spodRoot.Parent()
+	}
+	if spodRoot != nil && spodRoot.Parent() != nil {
+		for outer := spodRoot; outer != nil && outer.Parent() != nil; outer = outer.Parent() {
+			args = append([]string{outer.Name()}, args...)
+		}
 	}
 	args = append(args, "--root", e.Root, "__monitor", mode, name)
 	child := exec.Command(self, args...)
@@ -756,11 +801,19 @@ func launch(cmd *cobra.Command, e *engine.Engine, mode, name string, opts *engin
 				return nil
 			}
 		case err := <-done:
-			if err == nil {
+			state, sErr := e.Inspect(cmd.Context(), name)
+			if sErr == nil && state.Status == "running" {
 				fmt.Fprintln(cmd.OutOrStdout(), name)
 				return nil
 			}
-			return fmt.Errorf("container %s failed: %w (see %s)", name, err, logPath)
+			if err != nil {
+				return fmt.Errorf("container %s failed: %w (see %s)", name, err, logPath)
+			}
+			status := "unknown"
+			if sErr == nil {
+				status = state.Status
+			}
+			return fmt.Errorf("container %s exited before becoming ready (status: %s, see %s)", name, status, logPath)
 		case <-timer.C:
 			_ = child.Process.Kill()
 			<-done

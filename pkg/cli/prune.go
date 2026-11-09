@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,12 +23,24 @@ func addPrune(app *cobra.Command, withStore storeHandler) {
 		Use: "prune", Args: cobra.NoArgs,
 		Short: "Remove stored images no container uses (and optionally clean storage trash)",
 		RunE: withStore(func(cmd *cobra.Command, e *engine.Engine, _ []string) error {
+			out := cmd.OutOrStdout()
+
+			var stoppedContainers []string
+			if pruneTrash {
+				var cErr error
+				stoppedContainers, cErr = e.PruneContainers(cmd.Context())
+				if cErr != nil {
+					return fmt.Errorf("pruning stopped containers: %w", cErr)
+				}
+				for _, name := range stoppedContainers {
+					fmt.Fprintf(out, "Removed stopped container %s (retained in storage trash)\n", name)
+				}
+			}
+
 			images, err := e.Images()
 			if err != nil {
 				return err
 			}
-			// Removing an image a container still needs would break that
-			// container, so usage must be known before anything is offered.
 			users, err := e.List(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("cannot determine which images containers use: %w", err)
@@ -38,39 +51,69 @@ func addPrune(app *cobra.Command, withStore storeHandler) {
 					unused = append(unused, img)
 				}
 			}
-			out := cmd.OutOrStdout()
-			if len(unused) == 0 && !pruneTrash {
-				fmt.Fprintln(out, "Nothing to prune: every stored image is used by a container.")
+
+			var trashItems []engine.TrashItem
+			var trashSize int64
+			if pruneTrash {
+				var tErr error
+				trashItems, tErr = e.ListTrash()
+				if tErr != nil {
+					return fmt.Errorf("listing storage trash: %w", tErr)
+				}
+				for _, it := range trashItems {
+					trashSize += it.Size
+				}
+			}
+
+			if len(unused) == 0 && (!pruneTrash || len(trashItems) == 0) && len(stoppedContainers) == 0 {
+				fmt.Fprintln(out, "Nothing to prune: every stored image is used by a container and trash is empty.")
 				return nil
 			}
+
 			if len(unused) > 0 {
+				fmt.Fprintf(out, "The following %d unused stored image(s) (including tagged images) will be removed to storage trash:\n", len(unused))
 				for _, img := range unused {
 					fmt.Fprintf(out, "  %s (%s)\n", shortImageRef(img.Reference), humanTime(img.Created))
 				}
-				if !force {
-					if !stdinIsTerminal() {
-						return fmt.Errorf("%d unused image(s) would be removed; re-run with --force to remove them (they are kept in the storage trash)", len(unused))
+			}
+
+			if !force {
+				if !stdinIsTerminal() {
+					if pruneTrash {
+						return fmt.Errorf("%d unused image(s) and %d trash item(s) would be pruned; re-run with --force to proceed", len(unused), len(trashItems))
 					}
-					confirmed, err := promptYesNo(cmd.InOrStdin(), out, fmt.Sprintf("Remove the %d unused image(s) above? They are kept in the storage trash. [y/N] ", len(unused)))
-					if err != nil {
-						return err
-					}
-					if !confirmed {
-						fmt.Fprintln(out, "Nothing removed.")
-						return nil
-					}
+					return fmt.Errorf("%d unused image(s) would be removed; re-run with --force to remove them (they are kept in the storage trash)", len(unused))
 				}
-				for _, img := range unused {
-					if err := e.RemoveImage(img.Reference); err != nil {
-						return err
-					}
-					fmt.Fprintf(out, "Removed %s (retained in the storage trash)\n", shortImageRef(img.Reference))
+
+				var promptMsg string
+				if pruneTrash {
+					promptMsg = fmt.Sprintf("Remove %d unused image(s) to trash and permanently purge %d item(s) (%s) from global storage trash (%s)? This cannot be undone. [y/N] ",
+						len(unused), len(trashItems), humanBytes(trashSize), filepath.Join(e.Root, "trash"))
+				} else {
+					promptMsg = fmt.Sprintf("Remove the %d unused image(s) above? (They will be retained in storage trash) [y/N] ", len(unused))
+				}
+
+				confirmed, err := promptYesNo(cmd.InOrStdin(), out, promptMsg)
+				if err != nil {
+					return err
+				}
+				if !confirmed {
+					fmt.Fprintln(out, "Nothing removed.")
+					return nil
 				}
 			}
+
+			for _, img := range unused {
+				if err := e.RemoveImage(img.Reference); err != nil {
+					return fmt.Errorf("removing image %s: %w", img.Reference, err)
+				}
+				fmt.Fprintf(out, "Removed %s (retained in the storage trash)\n", shortImageRef(img.Reference))
+			}
+
 			if pruneTrash {
 				count, freed, err := e.CleanTrash(0)
 				if err != nil {
-					return err
+					return fmt.Errorf("purging storage trash: %w", err)
 				}
 				fmt.Fprintf(out, "Purged %d item(s) from storage trash, freeing %s.\n", count, humanBytes(freed))
 			}

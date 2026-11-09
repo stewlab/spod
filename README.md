@@ -163,8 +163,16 @@ spod import-oci alpine:3.22 alpine-saved.tar
 - `rename` changes a container's name in place, mount definitions
   included; `volume ls` / `volume rm` manage named volumes.
 - `prune` removes stored images no container uses. It lists what would go
-  and asks first (default No); scripts pass `--force`. Images still in use
-  are never offered, and removals land in the store's trash either way.
+  and asks first (default No); non-interactive scripts must pass `--force`. Images still in use
+  are never offered, and removals land in the store's trash. With `--trash`, stopped containers
+  are removed, unused images are discarded, and global storage trash is permanently purged
+  after explicit confirmation.
+- `container prune` removes stopped containers, retaining them in trash.
+- `trash list` displays recoverable resources in the storage trash (`~/.local/share/spod/storage/trash`
+  or `$SPOD_ROOT/trash`), identifying containers, images with original references, and recursive logical sizes.
+- `trash clean` permanently and irreversibly purges global storage trash. It prompts for confirmation
+  (default No) or requires `--force` on non-TTY environments. Optional `--older-than <duration>`
+  (e.g., `48h`) retains newer discards (negative durations are rejected).
 - `attach` streams a detached container's live output and, when it was
   created with `run -di`, forwards stdin. Detached TTY is not supported;
   use `exec -it` for a terminal.

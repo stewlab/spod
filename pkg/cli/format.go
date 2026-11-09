@@ -37,13 +37,16 @@ func renderContainerTable(out io.Writer, containers []engine.Container) {
 	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "NAME\tIMAGE\tSTATUS\tCREATED\tCOMMAND")
 	for _, c := range containers {
-		cmdStr := strings.Join(c.Options.Command, " ")
-		if cmdStr == "" && len(c.Entrypoint) > 0 {
-			cmdStr = strings.Join(c.Entrypoint, " ")
+		var parts []string
+		if len(c.Entrypoint) > 0 {
+			parts = append(parts, c.Entrypoint...)
+		} else if len(c.Options.Entrypoint) > 0 {
+			parts = append(parts, c.Options.Entrypoint...)
 		}
-		if cmdStr == "" && len(c.Options.Entrypoint) > 0 {
-			cmdStr = strings.Join(c.Options.Entrypoint, " ")
+		if len(c.Options.Command) > 0 {
+			parts = append(parts, c.Options.Command...)
 		}
+		cmdStr := strings.Join(parts, " ")
 		if len(cmdStr) > 42 {
 			cmdStr = cmdStr[:39] + "..."
 		}
