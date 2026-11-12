@@ -19,7 +19,7 @@ GitHub's private vulnerability reporting instead of a public issue.
 
   ```sh
   podman build --target test .                                  # full suite
-  podman build --target binary --output type=local,dest=bin .   # binary
+  scripts/build.sh .                                            # binary into bin/
   bin/spod --version                                            # smoke it
   ```
 

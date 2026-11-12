@@ -34,13 +34,20 @@ cross-compiling, is below.
 Build in a container — no Go toolchain or C compiler needed on the host:
 
 ```sh
-podman build --target binary --output type=local,dest=bin .   # emits bin/spod
+scripts/build.sh .                                            # emits bin/spod
 mkdir -p ~/.local/bin && install -m 755 bin/spod ~/.local/bin/spod
 spod --version
 
 podman build --tag spod .                                     # builds the distribution image
 podman build --target test .                                  # runs the test suite
 ```
+
+The script always builds the binary stage and exports it into `bin/`: a
+local engine runs `podman build --output type=local,dest=bin`, while a
+remote client (macOS, where podman runs the engine in a machine) copies
+the binary out of the built image, since `--output type=local` is
+unsupported there. `podman build --tag spod .` remains the distribution
+image build.
 
 `install` (rather than `cp`) replaces the file by rename, so the install
 succeeds even while a previous spod process is still running from the old
@@ -85,8 +92,8 @@ The Linux targets cross-compile in the container: `GOARCH` selects amd64
 toolchain, no emulation; Alpine's package pin holds the Zig version.
 
 ```sh
-podman build --build-arg GOARCH=arm64 --target binary --output type=local,dest=bin .
-podman build --build-arg GOARCH=riscv64 --target binary --output type=local,dest=bin .
+scripts/build.sh --build-arg GOARCH=arm64 .
+scripts/build.sh --build-arg GOARCH=riscv64 .
 ```
 
 The darwin, windows, and freebsd targets build with plain Go and CGO off
