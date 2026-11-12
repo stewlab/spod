@@ -1,7 +1,12 @@
 # Containerfile for building the spod binary and a minimal runtime image.
 #
 # Emit the binary as a build artifact, no image involved:
-#   podman build --target binary --output type=local,dest=bin .
+#   scripts/build.sh .
+#
+# The script targets the binary stage and exports the artifact into bin/ on
+# a local engine; a remote client, which cannot export with
+# --output type=local (macOS runs the engine in a podman machine), copies
+# it out of the built image instead.
 #
 # Build the distribution image:
 #   podman build --tag spod .
@@ -17,7 +22,7 @@
 # zig cc (bundled musl) for the builder platform and every target, so a
 # foreign binary is one build argument away — the container itself always
 # runs on the builder platform, never under emulation:
-#   podman build --build-arg GOARCH=arm64 --target binary --output type=local,dest=bin .
+#   scripts/build.sh --build-arg GOARCH=arm64 .
 #
 # The image runs spod as an unprivileged user. Running containers from inside
 # a container additionally requires user namespace support on the outer
@@ -66,8 +71,8 @@ RUN V="$(git describe --tags --dirty 2>/dev/null || true)"; \
 FROM build AS test
 RUN CGO_ENABLED=1 CC="zig cc -target $(cat /tmp/zigtarget)" go test -ldflags '-linkmode external -extldflags "-static"' ./...
 
-# Artifact target for --output; placed before the runtime stage so a plain
-# build still produces the image.
+# Artifact stage used by scripts/build.sh; placed before the runtime stage so
+# a plain build still produces the image.
 FROM scratch AS binary
 COPY --from=build /out/spod /spod
 
